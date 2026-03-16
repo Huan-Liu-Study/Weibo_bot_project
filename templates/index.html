@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S.H.I.E.L.D - 微博高阶水军防御阵列</title>
+    <!-- Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body class="cyber-theme">
+
+    <!-- Background Elements -->
+    <div class="grid-bg"></div>
+    <div class="cyber-lines"></div>
+
+    <header class="top-nav">
+        <div class="logo">
+            <i class="fa-solid fa-shield-halved"></i>
+            <h1>S.H.I.E.L.D <span>DEFENSE ARRAY</span></h1>
+            <div class="version-tag">v2.0 [ML_AUGMENTED]</div>
+        </div>
+
+        <div class="control-center">
+            <div class="input-group">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="topicInput" placeholder="请输入监控话题目标 (如: 中东局势彻底失控)" value="中东局势彻底失控">
+            </div>
+
+            <div class="slider-group">
+                <label for="limitSlider">深度 (10-100)：<span id="limitVal">20</span></label>
+                <input type="range" id="limitSlider" min="10" max="100" value="20" step="5">
+            </div>
+
+            <button id="scanBtn" class="cyber-btn">
+                <span><i class="fa-solid fa-crosshairs"></i> 启动全频扫描</span>
+                <div class="glitch-effect"></div>
+            </button>
+        </div>
+
+        <div class="sys-status">
+            <div class="status-dot online"></div>
+            <span>Random Forest Engine: <strong>ONLINE</strong></span>
+        </div>
+    </header>
+
+    <main class="dashboard">
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="hidden">
+            <div class="scanner">
+                <div class="scanner-bar"></div>
+                <div class="scanner-circle"></div>
+            </div>
+            <h3>正在分析异常节点特征...</h3>
+            <p>正在调用 12 维特征提取引擎</p>
+        </div>
+
+        <!-- Metric Cards -->
+        <section class="metrics-row">
+            <div class="metric-card glass-panel">
+                <div class="metric-icon"><i class="fa-solid fa-satellite-dish"></i></div>
+                <div class="metric-data">
+                    <h4 id="m-total">0</h4>
+                    <p>总探测节点数 (Nodes)</p>
+                </div>
+            </div>
+            <div class="metric-card glass-panel alert-level">
+                <div class="metric-icon"><i class="fa-solid fa-robot"></i></div>
+                <div class="metric-data">
+                    <h4 id="m-bots">0</h4>
+                    <p>确认恶意程序 (Bots)</p>
+                </div>
+            </div>
+            <div class="metric-card glass-panel">
+                <div class="metric-icon"><i class="fa-solid fa-skull-crossbones"></i></div>
+                <div class="metric-data">
+                    <h4 id="m-ratio">0%</h4>
+                    <p>污染浓度 (Contamination)</p>
+                </div>
+            </div>
+            <div class="metric-card glass-panel">
+                <div class="metric-icon"><i class="fa-solid fa-bolt"></i></div>
+                <div class="metric-data">
+                    <h4 id="m-sentiment">0.0</h4>
+                    <p>舆情极性 (Sentiment)</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts Area -->
+        <section class="charts-area">
+
+            <div class="chart-container glass-panel">
+                <div class="panel-header">
+                    <h3><i class="fa-solid fa-radar"></i> 军机特征降维雷达 (Bot Profiling)</h3>
+                    <div class="decorators"><span></span><span></span></div>
+                </div>
+                <div id="radarChart" class="echart-box"></div>
+                <div class="empty-state">等待数据流注入...</div>
+            </div>
+
+            <div class="suspects-container glass-panel">
+                <div class="panel-header">
+                    <h3><i class="fa-solid fa-list-check"></i> 高危感染节点池 (Top Threats)</h3>
+                    <div class="decorators"><span></span><span></span></div>
+                </div>
+                <ul id="suspectList" class="suspect-list">
+                    <!-- Suspects injection -->
+                    <li class="empty-state">等待数据流注入...</li>
+                </ul>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Custom JS -->
+    <script src="/static/js/app.js"></script>
+</body>
+
+</html>
