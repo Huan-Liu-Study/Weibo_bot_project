@@ -86,14 +86,25 @@ async def fetch_user_info(session, uid, headers):
                     for p in posts:
                         is_own_post = str(p.get('user', {}).get('id', '')) == uid_str
                         is_retweet = 'retweeted_status' in p
+                        text = p.get('text_raw', p.get('text', ''))
                         
-                        if is_own_post and not is_retweet:
+                        is_valid_post = False
+                        if is_own_post:
+                            if not is_retweet:
+                                is_valid_post = True
+                            else:
+                                # 检查是否为带有 5 个字以上自定义评论的转发
+                                import re
+                                custom_comment = text.split('//')[0]
+                                custom_comment = re.sub(r'转发微博|Repost|回复@\S+:', '', custom_comment).strip()
+                                if len(custom_comment) > 5:
+                                    is_valid_post = True
+                                    
+                        if is_valid_post:
                             eng = p.get('reposts_count', 0) + p.get('comments_count', 0) + p.get('attitudes_count', 0)
                             eng_list.append(eng)
                             
                             # 提取特征：话题多样性
-                            # 寻找 #话题# 格式的内容
-                            text = p.get('text_raw', p.get('text', ''))
                             import re
                             found_topics = re.findall(r'#([^#]+)#', text)
                             if found_topics:
@@ -264,14 +275,17 @@ def run_pipeline(topic, limit=20):
     # --- 特征 7: is_random_name （是否数字乱码昵称）---
     df['is_random_name'] = df[name_col].apply(lambda x: 1 if re.search(r'\d{5,}', x) else 0)
 
-    # --- 特征 8: engagement_rate （互动率 = 近20条转+评+赞平均值/粉丝数，原 zero_engagement）---
-    def calc_recent_engagement(eng_list, followers):
-        if followers <= 0: return 0.0
-        if not eng_list: return 0.0
+    # --- 特征 8: engagement_count （互动率 = 近20条转+评+赞平均值，原 zero_engagement）---
+    def calc_recent_engagement(eng_list):
+        if not eng_list or not isinstance(eng_list, list): return 1.0 # 护盾
+        try: eng_list = [float(x) for x in eng_list]
+        except Exception: return 1.0 # 护盾
+        if len(eng_list) == 0: return 1.0 # 护盾
+        
         avg_eng = sum(eng_list) / len(eng_list)
-        return avg_eng / followers
+        return max(1.0, avg_eng) # 兜底保护低调素人
 
-    df['engagement_rate'] = df.apply(lambda r: calc_recent_engagement(r.get('recent_engagements', []), r['followers_count']), axis=1)
+    df['engagement_count'] = df.apply(lambda r: calc_recent_engagement(r.get('recent_engagements', [])), axis=1)
 
     # --- 特征 9: is_verified （是否V认证）---
     auth_col = 'user_authentication'
@@ -396,11 +410,12 @@ def run_pipeline(topic, limit=20):
 
         # ★★★ 平均互动率 (权重 0.18) — 发了就跑的典型水军
         w = 0.18
-        er = float(row.get('engagement_rate', 0))
-        if er == 0:          sub = 1.0
-        elif er < 0.0005:    sub = 0.7
-        elif er < 0.005:     sub = 0.3
-        else:                sub = 0.0
+        # 以前叫 rate，现在叫 count (平均互动绝对量)，由于已经放缩过(log1p)，这里是对数级的分数
+        ec = float(row.get('engagement_count', 0))
+        if ec == 0:          sub = 1.0
+        elif ec < 0.69:      sub = 0.7  # log1p(1) = 0.693 (平均1个互动)
+        elif ec < 1.6:       sub = 0.3  # log1p(4) = 1.609 (平均4个互动)
+        else:                sub = 0.0  # 大于4个互动的算作健康活人
         score += w * sub
         total_weight += w
 
@@ -458,8 +473,8 @@ def run_pipeline(topic, limit=20):
 
     # --- 步骤 2: 模型推断 (如果有训练好的模型) ---
     feature_cols = [
-        'follower_friend_ratio', 'daily_post_rate', 'human_likeness_score',
-        'exclamation_density', 'is_random_name', 'engagement_rate', 'is_verified',
+        'daily_post_rate', 'human_likeness_score',
+        'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
         'sentiment_score', 'topic_diversity', 'post_interval_variance'
     ]
 

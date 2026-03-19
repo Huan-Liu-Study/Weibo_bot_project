@@ -34,14 +34,18 @@ def _load_cookie():
 
 async def _fetch_one(session, uid, headers):
     # 1. 获取基本画像
-    url_info = f'https://weibo.com/ajax/profile/info?custom={uid}'
+    # 账号 ID 如果全是数字，应使用 uid 参数；如果是自定义字符串名，用 custom 参数
+    is_numeric = str(uid).isdigit()
+    param = f"uid={uid}" if is_numeric else f"custom={uid}"
+    url_info = f'https://weibo.com/ajax/profile/info?{param}'
     h = headers.copy()
     h['Referer'] = f'https://weibo.com/u/{uid}'
     h['Accept'] = 'application/json, text/plain, */*'
-    result = {'uid': uid, 'followers_count': 0, 'friends_count': 0,
+    result = {'uid': uid, 'screen_name': '', 'followers_count': 0, 'friends_count': 0,
               'statuses_count': 0, 'created_at': '', 'description': '',
               'avatar_hd': '', 'recent_post_times': [],
-              'recent_engagements': [], 'recent_topics': [], 'verified_reason': ''}
+              'recent_engagements': [], 'recent_topics': [], 'verified_reason': '',
+              'recent_texts': []}
     try:
         await asyncio.sleep(0.15)
         async with session.get(url_info, headers=h, timeout=8) as resp:
@@ -50,7 +54,7 @@ async def _fetch_one(session, uid, headers):
                 u = data.get('data', {}).get('user', {})
                 if u:
                     for k in result:
-                        if k not in ['uid', 'recent_post_times']:
+                        if k not in ['uid', 'recent_post_times', 'recent_texts']:
                             result[k] = u.get(k, result[k])
     except Exception as e:
         print(f"  [!] user info {uid}: {e}")
@@ -70,25 +74,40 @@ async def _fetch_one(session, uid, headers):
                     # 别人发的帖子会出现在 timeline 是因为“赞过的微博”等机制，绝对不能算作自己的互动！
                     eng_list = []
                     topics_list = []
+                    text_list = []
                     uid_str = str(uid)
                     for p in posts:
                         is_own_post = str(p.get('user', {}).get('id', '')) == uid_str
                         is_retweet = 'retweeted_status' in p
+                        text = p.get('text_raw', p.get('text', ''))
                         
-                        if is_own_post and not is_retweet:
+                        is_valid_post = False
+                        if is_own_post:
+                            if not is_retweet:
+                                is_valid_post = True
+                            else:
+                                # 检查是否为带有 5 个字以上自定义评论的转发
+                                import re
+                                custom_comment = text.split('//')[0]
+                                custom_comment = re.sub(r'转发微博|Repost|回复@\S+:', '', custom_comment).strip()
+                                if len(custom_comment) > 5:
+                                    is_valid_post = True
+                                    
+                        if is_valid_post:
                             eng = p.get('reposts_count', 0) + p.get('comments_count', 0) + p.get('attitudes_count', 0)
                             eng_list.append(eng)
                             
                             # 提取特征：话题多样性
-                            # 寻找 #话题# 格式的内容
-                            text = p.get('text_raw', p.get('text', ''))
                             import re
                             found_topics = re.findall(r'#([^#]+)#', text)
                             if found_topics:
                                 topics_list.extend(found_topics)
+                            
+                            text_list.append(text)
                     
                     result['recent_engagements'] = eng_list
                     result['recent_topics'] = topics_list
+                    result['recent_texts'] = text_list
     except Exception as e:
         print(f"  [!] user timeline {uid}: {e}")
 
@@ -142,8 +161,11 @@ def compute_15_features(df):
             dts = sorted([pd.to_datetime(t).replace(tzinfo=None) for t in times_list])
             span_days = (dts[-1] - dts[0]).total_seconds() / 86400.0
             if span_days < 0.01:  # 所有帖子几乎同时发
-                return float(len(times_list))
-            return len(times_list) / span_days
+                rate = float(len(times_list))
+            else:
+                rate = len(times_list) / span_days
+            # 强制盖帽：每天最多算 50 贴（超过这个量对判别水军已经没有意义，只会制造特征极化的噪音）
+            return float(min(50.0, rate))
         except: return 0.0
     df['daily_post_rate'] = df.apply(_dpr, axis=1)
 
@@ -190,31 +212,22 @@ def compute_15_features(df):
     # 7 is_random_name
     df['is_random_name'] = df[nc].apply(lambda x: 1 if re.search(r'\d{5,}', x) else 0)
 
-    # 8 engagement_rate - Average of recent 20 posts    # --- 特征 8: engagement_rate （互动率）---
-    def calc_recent_engagement(eng_list, followers):
-        if followers <= 0: return 0.0
-        
-        # 处理可能来自CSV的字符串格式列表 (e.g., "[1, 2, 3]")
-        if isinstance(eng_list, str):
-            try:
-                import ast
-                eng_list = ast.literal_eval(eng_list)
-            except Exception:
-                eng_list = []
-                
-        if not eng_list or not isinstance(eng_list, list): return 0.0
+    # 8 engagement_count - Average of recent 20 posts    # --- 特征 8: engagement_count （互动率 - 绝对量版本）---
+    def calc_recent_engagement(eng_list):
+        if not eng_list or not isinstance(eng_list, list): return 1.0 # 护盾：0互动兜底为1
         
         # 确保列表中全是数字
         try:
             eng_list = [float(x) for x in eng_list]
         except Exception:
-            return 0.0
+            return 1.0 # 护盾
             
+        if len(eng_list) == 0: return 1.0 # 护盾
+        
         avg_eng = sum(eng_list) / len(eng_list)
-        return avg_eng / followers
+        return max(1.0, avg_eng) # 方案A：强制兜底。如果平均互动<1，统一视为1，保护低调素人
 
-    eng_list_col = df.get('recent_engagements', pd.Series([[]]*len(df)))
-    df['engagement_rate'] = df.apply(lambda r: calc_recent_engagement(r.get('recent_engagements', []), r['followers_count']), axis=1)
+    df['engagement_count'] = df.apply(lambda r: calc_recent_engagement(r.get('recent_engagements', [])), axis=1)
 
     # 9 is_verified
     auth = 'user_authentication'
@@ -245,11 +258,23 @@ def compute_15_features(df):
     def calc_topic_diversity(row):
         topics = row.get('recent_topics', [])
         times_list = row.get('recent_post_times', [])
+        
         if not isinstance(times_list, list) or len(times_list) == 0:
-            return 0.5  # 无数据时返回中性值
-        if not isinstance(topics, list) or len(topics) == 0:
-            return 0.5  # 没有话题标签 → 可能是真人日常帖，给中性值而非0
-        return len(set(topics)) / len(times_list)
+            return 0.5
+            
+        n_posts = len(times_list)
+        if not isinstance(topics, list):
+            topics = []
+            
+        m_tags = len(topics)
+        unique_tags = len(set(topics))
+        
+        # 核心改进：没有带标签的日常帖，每一贴都相当于一个独特的“生活切片”(唯一标签)
+        # 用总帖数减去抓取到的标签总数，估算未带标签的帖子量
+        untagged_posts = max(0, n_posts - m_tags)
+        
+        score = (unique_tags + untagged_posts) / n_posts
+        return float(min(1.0, score))
         
     df['topic_diversity'] = df.apply(calc_topic_diversity, axis=1)
 
@@ -404,7 +429,7 @@ def main():
         # 显示关键特征（人类可读格式）
         var_score = float(row.get('post_interval_variance', 0))
         dpr = float(row.get('daily_post_rate', 0))
-        er = float(row.get('engagement_rate', 0))
+        er = float(row.get('engagement_count', 0))
         ffr = float(row.get('follower_friend_ratio', 0))
         followers = int(row.get('followers_count', 0))
         
@@ -518,8 +543,8 @@ def main():
         if len(final_df) >= 10:
             print(f"\n  正在训练 RandomForest 回归模型 (预测连续可疑度)...")
             feature_cols = [
-                'follower_friend_ratio', 'daily_post_rate', 'human_likeness_score',
-                'exclamation_density', 'is_random_name', 'engagement_rate', 'is_verified',
+                'daily_post_rate', 'human_likeness_score',
+                'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
                 'sentiment_score', 'topic_diversity', 'post_interval_variance'
             ]
             

@@ -25,6 +25,20 @@ os.chdir(project_dir)
 
 from label_existing_data import _fetch_all, compute_15_features, _load_cookie
 
+def is_official(row):
+    """从画像中识别官方账号、媒体、政务、客户端蓝V等"""
+    keywords = ['官方微博', '官方', '客户端', '新闻', '媒体', '资讯', '报', '网', '电台', '发布', '发布厅', '观察', '中心', '工作室', '频道']
+    auth = str(row.get('user_authentication', '')).lower() + str(row.get('verified_reason', '')).lower()
+    name = str(row.get('screen_name', row.get('用户昵称', ''))).lower()
+    
+    # 1. 认证类型特征 (蓝V等)
+    if any(k in auth for k in ['蓝v', '企业认证', '机构认证', '媒体认证', '政府认证', '官方认证']):
+        return True
+    # 2. 关键词穿透
+    if any(k in auth or k in name for k in keywords):
+        return True
+    return False
+
 def apply_red_flags(score, row):
     """专家规则红旗否决机制"""
     piv = float(row.get('post_interval_variance', -1))
@@ -107,12 +121,30 @@ async def main():
     print("\n⚙️ [2/4] 计算 15 维语义特征...")
     df_remaining = compute_15_features(df_remaining)
 
+    # 🛡️ 新增：实时防护——过滤官方/媒体账号
+    print("🛡️  正在扫描官方/蓝V账号...")
+    df_remaining['is_official_media'] = df_remaining.apply(is_official, axis=1)
+    officials = df_remaining[df_remaining['is_official_media']]
+    
+    if len(officials) > 0:
+        official_uids = officials['user_id'].unique()
+        print(f"  [FOUND] 拦截并移除了 {len(official_uids)} 个官方媒体/客户端账号。")
+        # 存入档案
+        officials.to_csv('official_media_accounts_archive.csv', mode='a', header=not os.path.exists('official_media_accounts_archive.csv'), index=False, encoding='utf-8-sig')
+        # 从此轮标注中彻底剔除
+        df_remaining = df_remaining[~df_remaining['is_official_media']].copy()
+    
+    if len(df_remaining) == 0:
+        print("\n[!] 本轮数据全部为官方号，无需模型标注。任务结束。")
+        return
+
+
     # 5. 模型预测
     print("\n🤖 [3/4] 加载模型进行全自动评分...")
     model = joblib.load(model_file)
     feature_cols = [
-        'follower_friend_ratio', 'daily_post_rate', 'human_likeness_score',
-        'exclamation_density', 'is_random_name', 'engagement_rate', 'is_verified',
+        'daily_post_rate', 'human_likeness_score',
+        'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
         'sentiment_score', 'topic_diversity', 'post_interval_variance'
     ]
     X = df_remaining[feature_cols].fillna(0)

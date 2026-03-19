@@ -8,18 +8,31 @@ import asyncio
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from label_existing_data import _fetch_all, compute_15_features, _load_cookie
-
 def get_ml_features(df):
     """提取模型所需特征"""
     cols = [
-        'follower_friend_ratio', 'daily_post_rate', 'human_likeness_score',
-        'exclamation_density', 'is_random_name', 'engagement_rate', 'is_verified',
+        'daily_post_rate', 'human_likeness_score',
+        'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
         'sentiment_score', 'topic_diversity', 'post_interval_variance'
     ]
     for c in cols:
         if c not in df.columns:
             df[c] = 0
     return df[cols].fillna(0)
+def is_official(row):
+    """判断是否为行政/媒体/企业官方抽样（蓝V或特定关键词）"""
+    keywords = ['官方微博', '官方', '客户端', '新闻', '媒体', '资讯', '报', '网', '电台', '发布', '发布厅', '观察', '中心', '工作室', '频道']
+    auth = str(row.get('user_authentication', '')).lower() + str(row.get('verified_reason', '')).lower()
+    name = str(row.get('用户昵称', row.get('screen_name', ''))).lower()
+    
+    # 蓝V认证特征
+    if any(k in auth for k in ['蓝v', '企业认证', '机构认证', '媒体认证', '政府认证', '官方认证']):
+        return True
+    
+    # 关键词穿透
+    if any(k in auth or k in name for k in keywords):
+        return True
+    return False
 
 def main():
     print("=" * 70)
@@ -63,7 +76,7 @@ def main():
     loop.close()
 
     user_map = {r['uid']: r for r in results}
-    for field in ['followers_count', 'friends_count', 'statuses_count', 'description', 'avatar_hd', 'recent_post_times', 'recent_engagements', 'recent_topics', 'verified_reason']:
+    for field in ['screen_name', 'recent_texts', 'followers_count', 'friends_count', 'statuses_count', 'description', 'avatar_hd', 'recent_post_times', 'recent_engagements', 'recent_topics', 'verified_reason']:
         col_name = 'account_created_at' if field == 'created_at' else field
         topic_df[col_name] = topic_df['user_id'].apply(lambda x: user_map.get(x, {}).get(field, ''))
         
@@ -82,9 +95,23 @@ def main():
     if not unlabeled_uids:
         print("\n[!] 该话题下的所有用户都已在金标准库中完成标注。")
         return
-        
+
     print(f"[3/4] 过滤已标注数据，剩余 {len(unlabeled_uids)} 个新用户待处理...")
     work_df = topic_df[topic_df['user_id'].isin(unlabeled_uids)].copy()
+
+    # 🟢 新增：实时过滤官方媒体号 (防止在人工复核阶段出现新闻客户端)
+    print("🛡️  实时扫描官方媒体/行政账号...")
+    work_df['is_official'] = work_df.apply(is_official, axis=1)
+    official_count = work_df[work_df['is_official']]['user_id'].nunique()
+    if official_count > 0:
+        print(f"  [FOUND] 自动识别出 {official_count} 个官方/媒体号，已将其移至隔离区。")
+        # 存入存档文件
+        of_df = work_df[work_df['is_official']]
+        of_df.to_csv('official_media_accounts_archive.csv', mode='a', header=not os.path.exists('official_media_accounts_archive.csv'), index=False, encoding='utf-8-sig')
+        # 从当前工作流删除
+        work_df = work_df[~work_df['is_official']].copy()
+        unlabeled_uids = [u for u in unlabeled_uids if u in work_df['user_id'].values]
+
 
     # 4. 模型预测
     print("[4/4] 加载上版本模型进行预筛选...")
@@ -141,13 +168,13 @@ def main():
         # 非开荒模式：只复核极度模糊的边界地带
         print(f"\n【🚀 机器辅助模式】此话题已有 {topic_labeled_count} 条你的标注基准。")
         
-        auto_human = [u['uid'] for u in user_scores if u['score'] < 0.2]
-        auto_bot = [u['uid'] for u in user_scores if u['score'] > 0.8]
-        review_uids = [u['uid'] for u in user_scores if 0.2 <= u['score'] <= 0.8]
+        auto_human = [u['uid'] for u in user_scores if u['score'] <= 0.25]
+        auto_bot = [u['uid'] for u in user_scores if u['score'] >= 0.75]
+        review_uids = [u['uid'] for u in user_scores if 0.25 < u['score'] < 0.75]
         
-        print(f"  🟢 模型极度信任 (Score < 0.2): {len(auto_human)} 人 -> 自动归为 0档 (不展示)")
-        print(f"  🔴 模型极度怀疑 (Score > 0.8): {len(auto_bot)} 人 -> 自动归为 4档 (不展示)")
-        print(f"  🟡 模型吃不准   (0.2~0.8):    {len(review_uids)} 人 -> 将展示给你进行抽检")
+        print(f"  🟢 模型极度信任 (Score <= 0.25): {len(auto_human)} 人 -> 自动归为 0档 (不展示)")
+        print(f"  🔴 模型极度怀疑 (Score >= 0.75): {len(auto_bot)} 人 -> 自动归为 4档 (不展示)")
+        print(f"  🟡 模型吃不准   (0.25~0.75):    {len(review_uids)} 人 -> 将展示给你进行抽检")
         
         confirm = input("\n同意将上述高纯度数据自动打标签并在后台合并吗？(y/n): ")
         if confirm.lower() == 'y':
@@ -188,12 +215,9 @@ def main():
     print("=" * 60)
 
     # 复用之前写的 UI 展示代码
-    content_col = '微博正文' if '微博正文' in work_df.columns else [c for c in work_df.columns if '正文' in c or 'text' in c.lower()][0]
-    name_col = '用户昵称' if '用户昵称' in work_df.columns else [c for c in work_df.columns if '昵称' in c or 'name' in c.lower()][0]
-
     manually_labeled_rows = []
     quit_flag = False
-    
+
     for i, uid in enumerate(review_uids):
         if quit_flag: break
         
@@ -201,8 +225,11 @@ def main():
         row = user_posts.iloc[0]
         model_score = next((u['score'] for u in user_scores if u['uid']==uid), 0.5)
 
+        name = str(row.get('screen_name', '未知'))
+        if name == '0' or not name: name = '未知 (API获取失败/受限)'
+
         print(f"\n{'─'*60}")
-        print(f"  [{i+1}/{len(review_uids)}] 用户: {row.get(name_col, '未知')}")
+        print(f"  [{i+1}/{len(review_uids)}] 用户: {name}")
         print(f"{'─'*60}")
         
         # 打印 AI 意见
@@ -220,27 +247,31 @@ def main():
         desc = str(row.get('description', ''))
         print(f"  简介: {desc[:80] if desc else '(空)'}")
 
-        print(f"\n  ── 近期抓取的 {len(user_posts)} 条本话题微博 ──")
-        for j, (_, post) in enumerate(user_posts.iterrows()):
-            text = str(post.get(content_col, '')).replace('\n', ' ')
-            print(f"    [{j+1}] \"{text[:100]}...\"" if len(text)>100 else f"    [{j+1}] \"{text}\"")
+        api_texts = row.get('recent_texts', [])
+        if isinstance(api_texts, list) and len(api_texts) > 0:
+            print(f"\n  ── 近期 API 抓取的 {len(api_texts)} 条原创发帖 ──")
+            for j, t in enumerate(api_texts[:5]):
+                text = str(t).replace('\n', ' ')
+                print(f"    [{j+1}] \"{text[:100]}...\"" if len(text)>100 else f"    [{j+1}] \"{text}\"")
+        else:
+            print(f"\n  ── API 未返回有效文本数据 (可能全是转发或账号受限) ──")
 
         var_score = float(row.get('post_interval_variance', 0))
         dpr = float(row.get('daily_post_rate', 0))
-        er = float(row.get('engagement_rate', 0))
-        ffr = float(row.get('follower_friend_ratio', 0))
+        ec = float(row.get('engagement_count', 0)) # 新特征：绝对互动量
+        sentiment = float(row.get('sentiment_score', 0))
         followers = int(row.get('followers_count', 0))
         
-        if er == 0: er_display = "⚠️ 0 (零互动/全转发)"
-        elif er < 0.001: er_display = f"⚠️ 万分之{er*10000:.1f} (极低)"
-        elif er < 0.01: er_display = f"千分之{er*1000:.1f} (偏低)"
-        else: er_display = f"✓ {er*100:.2f}% (正常)"
+        # 互动量展示逻辑 (新逻辑：最低兜底为 1.0)
+        if ec <= 1.0: er_display = "⚠️ 1.0 (极低/被护盾兜底)"
+        elif ec < 5.0: er_display = f"✓ {ec:.1f} (偏低/正常)"
+        elif ec < 50.0: er_display = f"🔥 {ec:.1f} (较高)"
+        else: er_display = f"🚀 {ec:.0f} (爆款/大V水平)"
         
-        if ffr >= 1: ffr_display = f"✓ {ffr:.1f}:1 (正常)"
-        elif ffr > 0: 
-            if (1/ffr) > 5: ffr_display = f"⚠️ 1:{1/ffr:.1f} (关远大于粉，高度可疑)"
-            else: ffr_display = f"1:{1/ffr:.1f} (关略大于粉)"
-        else: ffr_display = "⚠️ 0粉 (极度可疑)"
+        # 情感极性展示逻辑
+        if sentiment < -0.5: sent_display = f"⚠️ {sentiment:.2f} (极度消极)"
+        elif sentiment > 0.5: sent_display = f"⚠️ {sentiment:.2f} (极度亢奋)"
+        else: sent_display = f"✓ {sentiment:.2f} (情绪平稳)"
 
         dpr_level = "极高" if dpr > 50 else "偏高" if dpr > 20 else "中等" if dpr > 5 else "正常"
         var_level = "极其规律" if var_score < 0.5 else "比较规律" if var_score < 2 else "一般" if var_score < 5 else "随机"
@@ -249,7 +280,7 @@ def main():
 
         print(f"\n  ┌─ 关键特征 {'─'*40}")
         print(f"  │ 发帖间隔方差: {var_score:.2f} 小时 ({var_level}) | 日均发帖: {dpr:.1f} 帖/天 ({dpr_level})")
-        print(f"  │ 平均互动率:   {er_display} (均互动{er*followers:.0f}) | 粉关比: {ffr_display}")
+        print(f"  │ 平均互动量:   {er_display} | 情感极性: {sent_display}")
         print(f"  │ 话题多样性:   {td_val*100:.0f}% (越低越像刷榜机器) | 语义拟人度: {hl_val*100:.0f}% (越高越像真人)")
         print(f"  └{'─'*50}")
 
@@ -302,8 +333,8 @@ def main():
         if len(final_df) >= 10:
             print(f"\n🚀 正在根据最新融合的数据集（共 {len(final_df)} 条）重新训练机器模型...")
             feature_cols = [
-                'follower_friend_ratio', 'daily_post_rate', 'human_likeness_score',
-                'exclamation_density', 'is_random_name', 'engagement_rate', 'is_verified',
+                'daily_post_rate', 'human_likeness_score',
+                'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
                 'sentiment_score', 'topic_diversity', 'post_interval_variance'
             ]
             for c in feature_cols:

@@ -111,8 +111,8 @@ def main():
 
     # 使用新的 15 维特征和连续打分逻辑
     feature_cols = [
-                'follower_friend_ratio', 'daily_post_rate', 'human_likeness_score',
-                'exclamation_density', 'is_random_name', 'engagement_rate', 'is_verified',
+                'daily_post_rate', 'human_likeness_score',
+                'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
                 'sentiment_score', 'topic_diversity', 'post_interval_variance'
             ]
             
@@ -137,7 +137,8 @@ def main():
     
     # 用全量数据训练最终模型
     print("\n🏋️ 训练用于半自动初筛的最终 RandomForestRegressor 模型...")
-    rf_final = RandomForestRegressor(n_estimators=100, random_state=42)
+    # 启用 max_features='sqrt' 和 max_depth=8 强制模型在没有粉关比时，去学习语义特征，防止单一特征过拟合
+    rf_final = RandomForestRegressor(n_estimators=150, max_features='sqrt', max_depth=8, random_state=42)
     rf_final.fit(X, y)
 
     # 特征重要性
