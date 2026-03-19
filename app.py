@@ -15,7 +15,7 @@ limit = st.sidebar.slider("设置探针样本数 (受限于演示速度，建议
 st.sidebar.markdown("---")
 st.sidebar.markdown("**AI 驱动说明**：\\n"
                     "- 采用 SnowNLP 分析舆论情感偏移\\n"
-                    "- 利用 1600+ 样本训练的随机森林进行判别")
+                    "- 利用 1300+ 样本训练的随机森林（9 维特征）进行判别")
 
 if st.sidebar.button("🚀 启动自动化全维侦测", type="primary"):
     with st.spinner("⚡ 飞速运转中: 挂载 Scrapy 引擎 -> 实施热点抓包 -> 分析潜水比例 -> 提取情绪权重..."):

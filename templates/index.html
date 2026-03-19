@@ -1,131 +1,161 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S.H.I.E.L.D - 微博高阶水军防御阵列</title>
-    <!-- Fonts -->
-    <link
-        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap"
-        rel="stylesheet">
-    <!-- FontAwesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- ECharts -->
+    <title>微博水军检测系统 — Weibo Bot Shield</title>
+    <meta name="description" content="基于机器学习的微博社交机器人自动化检测系统">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-    <!-- Custom CSS -->
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
-
-<body class="cyber-theme">
-
-    <!-- Background Elements -->
-    <div class="grid-bg"></div>
-    <div class="cyber-lines"></div>
-
-    <header class="top-nav">
-        <div class="logo">
-            <i class="fa-solid fa-shield-halved"></i>
-            <h1>S.H.I.E.L.D <span>DEFENSE ARRAY</span></h1>
-            <div class="version-tag">v2.0 [ML_AUGMENTED]</div>
+<body>
+    <!-- ==================== HERO SECTION ==================== -->
+    <section id="hero">
+        <canvas id="particleCanvas"></canvas>
+        <div class="hero-content">
+            <h1 class="hero-title">
+                <span class="title-line title-top">WEIBO BOT</span>
+                <span class="title-line title-bottom">SHIELD</span>
+            </h1>
+            <p class="hero-subtitle">基于机器学习的微博水军智能检测系统</p>
+            <div class="hero-scroll-hint">
+                <span>向下滚动</span>
+                <div class="scroll-arrow"></div>
+            </div>
         </div>
+    </section>
 
-        <div class="control-center">
-            <div class="input-group">
-                <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" id="topicInput" placeholder="请输入监控话题目标 (如: 中东局势彻底失控)" value="中东局势彻底失控">
-            </div>
-
-            <div class="slider-group">
-                <label for="limitSlider">深度 (10-100)：<span id="limitVal">20</span></label>
-                <input type="range" id="limitSlider" min="10" max="100" value="20" step="5">
-            </div>
-
-            <button id="scanBtn" class="cyber-btn">
-                <span><i class="fa-solid fa-crosshairs"></i> 启动全频扫描</span>
-                <div class="glitch-effect"></div>
+    <!-- ==================== MAIN APP ==================== -->
+    <main id="app">
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="topic">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                话题检测
             </button>
-        </div>
+            <button class="tab-btn" data-tab="user">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                单账号检测
+            </button>
+        </nav>
 
-        <div class="sys-status">
-            <div class="status-dot online"></div>
-            <span>Random Forest Engine: <strong>ONLINE</strong></span>
-        </div>
-    </header>
-
-    <main class="dashboard">
-
-        <!-- Loading Overlay -->
-        <div id="loadingOverlay" class="hidden">
-            <div class="scanner">
-                <div class="scanner-bar"></div>
-                <div class="scanner-circle"></div>
-            </div>
-            <h3>正在分析异常节点特征...</h3>
-            <p>正在调用 12 维特征提取引擎</p>
-        </div>
-
-        <!-- Metric Cards -->
-        <section class="metrics-row">
-            <div class="metric-card glass-panel">
-                <div class="metric-icon"><i class="fa-solid fa-satellite-dish"></i></div>
-                <div class="metric-data">
-                    <h4 id="m-total">0</h4>
-                    <p>总探测节点数 (Nodes)</p>
+        <!-- ========== Tab 1: Topic Detection ========== -->
+        <section id="tab-topic" class="tab-panel active">
+            <div class="input-section">
+                <div class="input-group">
+                    <input type="text" id="topicInput" placeholder="输入微博话题关键词，如：中东局势彻底失控" spellcheck="false">
+                    <div class="input-options">
+                        <label>采样深度：<strong id="depthVal">20</strong></label>
+                        <input type="range" id="depthSlider" min="10" max="100" value="20" step="5">
+                    </div>
                 </div>
+                <button id="topicBtn" class="primary-btn">
+                    <span class="btn-text">启动检测</span>
+                    <span class="btn-loading" style="display:none">
+                        <span class="spinner"></span>检测中...
+                    </span>
+                </button>
             </div>
-            <div class="metric-card glass-panel alert-level">
-                <div class="metric-icon"><i class="fa-solid fa-robot"></i></div>
-                <div class="metric-data">
-                    <h4 id="m-bots">0</h4>
-                    <p>确认恶意程序 (Bots)</p>
+
+            <!-- Topic Results -->
+            <div id="topicResults" class="results-area" style="display:none">
+                <div class="stats-row">
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-total">0</div>
+                        <div class="stat-label">扫描账号数</div>
+                    </div>
+                    <div class="stat-card alert">
+                        <div class="stat-number" id="stat-bots">0</div>
+                        <div class="stat-label">疑似水军</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-ratio">0%</div>
+                        <div class="stat-label">水军浓度</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-sentiment">—</div>
+                        <div class="stat-label">舆情极性</div>
+                    </div>
                 </div>
-            </div>
-            <div class="metric-card glass-panel">
-                <div class="metric-icon"><i class="fa-solid fa-skull-crossbones"></i></div>
-                <div class="metric-data">
-                    <h4 id="m-ratio">0%</h4>
-                    <p>污染浓度 (Contamination)</p>
+
+                <div class="charts-row">
+                    <div class="chart-card">
+                        <h3>真人 vs 水军分布</h3>
+                        <div id="pieChart" class="chart-container"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>特征对比雷达</h3>
+                        <div id="radarChart" class="chart-container"></div>
+                    </div>
                 </div>
-            </div>
-            <div class="metric-card glass-panel">
-                <div class="metric-icon"><i class="fa-solid fa-bolt"></i></div>
-                <div class="metric-data">
-                    <h4 id="m-sentiment">0.0</h4>
-                    <p>舆情极性 (Sentiment)</p>
+
+                <div class="suspects-section">
+                    <h3>🚩 高危可疑账号</h3>
+                    <div id="suspectList" class="suspect-grid"></div>
                 </div>
             </div>
         </section>
 
-        <!-- Charts Area -->
-        <section class="charts-area">
-
-            <div class="chart-container glass-panel">
-                <div class="panel-header">
-                    <h3><i class="fa-solid fa-radar"></i> 军机特征降维雷达 (Bot Profiling)</h3>
-                    <div class="decorators"><span></span><span></span></div>
+        <!-- ========== Tab 2: Single User Detection ========== -->
+        <section id="tab-user" class="tab-panel">
+            <div class="input-section">
+                <div class="input-group">
+                    <input type="text" id="uidInput" placeholder="输入微博用户 UID（纯数字），如：1234567890" spellcheck="false">
                 </div>
-                <div id="radarChart" class="echart-box"></div>
-                <div class="empty-state">等待数据流注入...</div>
+                <button id="userBtn" class="primary-btn">
+                    <span class="btn-text">检测此账号</span>
+                    <span class="btn-loading" style="display:none">
+                        <span class="spinner"></span>分析中...
+                    </span>
+                </button>
             </div>
 
-            <div class="suspects-container glass-panel">
-                <div class="panel-header">
-                    <h3><i class="fa-solid fa-list-check"></i> 高危感染节点池 (Top Threats)</h3>
-                    <div class="decorators"><span></span><span></span></div>
+            <!-- User Results -->
+            <div id="userResults" class="results-area" style="display:none">
+                <div class="user-result-header">
+                    <div class="user-avatar-area">
+                        <div class="user-avatar" id="userAvatar">?</div>
+                        <div class="user-info">
+                            <h2 id="userName">—</h2>
+                            <p id="userMeta">—</p>
+                        </div>
+                    </div>
+                    <div class="score-gauge">
+                        <div class="gauge-ring" id="gaugeRing">
+                            <svg viewBox="0 0 120 120">
+                                <circle cx="60" cy="60" r="54" fill="none" stroke="#1a1a2e" stroke-width="8"/>
+                                <circle cx="60" cy="60" r="54" fill="none" stroke-width="8" stroke-linecap="round"
+                                        id="gaugeArc" class="gauge-arc"
+                                        stroke-dasharray="339.29" stroke-dashoffset="339.29"/>
+                            </svg>
+                            <div class="gauge-value" id="gaugeValue">—</div>
+                        </div>
+                        <div class="gauge-label" id="gaugeLabel">可疑度评分</div>
+                    </div>
                 </div>
-                <ul id="suspectList" class="suspect-list">
-                    <!-- Suspects injection -->
-                    <li class="empty-state">等待数据流注入...</li>
-                </ul>
-            </div>
 
+                <div class="user-detail-row">
+                    <div class="chart-card">
+                        <h3>9 维特征画像</h3>
+                        <div id="userRadar" class="chart-container"></div>
+                    </div>
+                    <div class="chart-card reasons-card">
+                        <h3>判定理由</h3>
+                        <ul id="reasonsList" class="reasons-list"></ul>
+                    </div>
+                </div>
+            </div>
         </section>
-
     </main>
 
-    <!-- Custom JS -->
+    <footer>
+        <p>Weibo Bot Shield © 2026 · 基于 RandomForest + 规则引擎双驱动</p>
+    </footer>
+
     <script src="/static/js/app.js"></script>
 </body>
-
 </html>

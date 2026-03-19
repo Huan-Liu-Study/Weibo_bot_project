@@ -1,232 +1,450 @@
-// DOM Elements
-const scanBtn = document.getElementById('scanBtn');
-const topicInput = document.getElementById('topicInput');
-const limitSlider = document.getElementById('limitSlider');
-const limitVal = document.getElementById('limitVal');
-const loadingOverlay = document.getElementById('loadingOverlay');
-const demoBtn = document.getElementById('demoBtn');
+/* ============================================================ */
+/*  Weibo Bot Shield — Main Application Script                   */
+/*  Three.js Gold Confetti Sphere + API + ECharts                */
+/* ============================================================ */
 
-const mTotal = document.getElementById('m-total');
-const mBots = document.getElementById('m-bots');
-const mRatio = document.getElementById('m-ratio');
-const mSentiment = document.getElementById('m-sentiment');
-const suspectList = document.getElementById('suspectList');
+// ==================== THREE.JS GOLD PARTICLE SPHERE ====================
 
-// ECharts Instance
-let radarChart = null;
+(function initParticleSphere() {
+    const canvas = document.getElementById('particleCanvas');
+    if (!canvas) return;
 
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    // Init empty chart
-    radarChart = echarts.init(document.getElementById('radarChart'));
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0xf5f0eb, 1);  // warm cream background
 
-    // Default Empty Options
-    radarChart.setOption({
-        tooltip: {},
-        radar: {
-            indicator: [
-                { name: '感叹号情绪', max: 0.2 },
-                { name: '粉丝关注比畸形', max: 10 },
-                { name: '日均发帖率', max: 50 },
-                { name: '互动率', max: 1 },
-                { name: '外链数量', max: 5 },
-                { name: '默认虚假头像', max: 1 },
-                { name: '乱码机器名', max: 1 },
-                { name: '情感极性', max: 1 },
-                { name: '话题标签数', max: 10 },
-                { name: '发帖间隔方差', max: 100 }
-            ],
-            splitNumber: 4,
-            axisLine: { lineStyle: { color: 'rgba(0, 242, 254, 0.3)' } },
-            splitLine: { lineStyle: { color: 'rgba(0, 242, 254, 0.1)' } },
-            splitArea: { areaStyle: { color: ['rgba(0,0,0,0)'] } },
-            axisName: { color: '#00f2fe' }
-        },
-        series: []
-    });
+    // Create confetti-like particles using small planes
+    const PARTICLE_COUNT = 2500;
+    const radius = 3.2;
+    const group = new THREE.Group();
 
-    // Handle Window Resize
-    window.addEventListener('resize', () => {
-        if (radarChart) radarChart.resize();
-    });
-});
+    // Gold color palette
+    const goldColors = [
+        new THREE.Color(0xC9A84C),  // dark gold
+        new THREE.Color(0xD4B95A),  // medium gold
+        new THREE.Color(0xE0CA68),  // light gold
+        new THREE.Color(0xB8943D),  // bronze
+        new THREE.Color(0xCFBE7A),  // pale gold
+        new THREE.Color(0xA88734),  // deep bronze
+    ];
 
-// Slider Events
-limitSlider.addEventListener('input', (e) => {
-    limitVal.innerText = e.target.value;
-});
+    // Store particle data for animation
+    const particleData = [];
 
-// UI Update Helpers
-function updateMetrics(summary) {
-    // Count up animation for numbers
-    mTotal.innerText = summary.total_scanned;
-    mBots.innerText = summary.bot_count;
-    mRatio.innerText = `${summary.bot_ratio}%`;
-    mSentiment.innerText = summary.overall_sentiment.toFixed(2);
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        // Random position on sphere surface
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = radius + (Math.random() - 0.5) * 0.8;
 
-    // Style toggle based on threat level
-    if (summary.bot_ratio > 30) {
-        mRatio.parentElement.parentElement.classList.add('alert-level');
-    } else {
-        mRatio.parentElement.parentElement.classList.remove('alert-level');
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.sin(phi) * Math.sin(theta);
+        const z = r * Math.cos(phi);
+
+        // Small square geometry (confetti)
+        const size = 0.02 + Math.random() * 0.04;
+        const geo = new THREE.PlaneGeometry(size, size * (0.6 + Math.random() * 0.8));
+        const color = goldColors[Math.floor(Math.random() * goldColors.length)];
+
+        const mat = new THREE.MeshBasicMaterial({
+            color: color,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.5 + Math.random() * 0.45,
+        });
+
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x, y, z);
+
+        // Random initial rotation
+        mesh.rotation.set(
+            Math.random() * Math.PI * 2,
+            Math.random() * Math.PI * 2,
+            Math.random() * Math.PI * 2
+        );
+
+        group.add(mesh);
+
+        particleData.push({
+            mesh,
+            basePos: { x, y, z },
+            rotSpeed: {
+                x: (Math.random() - 0.5) * 0.02,
+                y: (Math.random() - 0.5) * 0.02,
+                z: (Math.random() - 0.5) * 0.02,
+            },
+            floatPhase: Math.random() * Math.PI * 2,
+            floatSpeed: 0.3 + Math.random() * 0.5,
+            floatAmp: 0.03 + Math.random() * 0.05,
+        });
     }
+
+    scene.add(group);
+    camera.position.z = 7;
+
+    // Mouse interaction
+    let mouseX = 0, mouseY = 0;
+    let targetRotX = 0, targetRotY = 0;
+    document.addEventListener('mousemove', (e) => {
+        mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
+        mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+    });
+
+    // Speed control
+    let rotationSpeed = 0.0008;
+    window._setParticleSpeed = function(speed) { rotationSpeed = speed; };
+
+    // Animation loop
+    function animate(time) {
+        requestAnimationFrame(animate);
+        const t = time * 0.001;
+
+        // Slow sphere rotation
+        group.rotation.y += rotationSpeed;
+        group.rotation.x += rotationSpeed * 0.3;
+
+        // Smooth mouse follow
+        targetRotY += (mouseX * 0.3 - targetRotY) * 0.02;
+        targetRotX += (-mouseY * 0.2 - targetRotX) * 0.02;
+        group.rotation.y += targetRotY * 0.01;
+        group.rotation.x += targetRotX * 0.01;
+
+        // Animate each particle (flutter effect)
+        for (let i = 0; i < particleData.length; i++) {
+            const pd = particleData[i];
+            const m = pd.mesh;
+
+            // Gentle floating
+            const floatOffset = Math.sin(t * pd.floatSpeed + pd.floatPhase) * pd.floatAmp;
+            m.position.x = pd.basePos.x + floatOffset;
+            m.position.y = pd.basePos.y + Math.cos(t * pd.floatSpeed * 0.7 + pd.floatPhase) * pd.floatAmp;
+            m.position.z = pd.basePos.z + Math.sin(t * pd.floatSpeed * 0.5 + pd.floatPhase * 1.3) * pd.floatAmp;
+
+            // Tumble rotation (confetti flutter)
+            m.rotation.x += pd.rotSpeed.x;
+            m.rotation.y += pd.rotSpeed.y;
+            m.rotation.z += pd.rotSpeed.z;
+        }
+
+        renderer.render(scene, camera);
+    }
+    animate(0);
+
+    // Resize
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+})();
+
+
+// ==================== TAB SWITCHING ====================
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+});
+
+
+// ==================== DEPTH SLIDER ====================
+
+const depthSlider = document.getElementById('depthSlider');
+const depthVal = document.getElementById('depthVal');
+if (depthSlider) {
+    depthSlider.addEventListener('input', () => {
+        depthVal.textContent = depthSlider.value;
+    });
 }
 
-function updateRadar(metrics) {
-    if (!metrics || !metrics.humans || !metrics.bots) return;
 
-    const botVals = [
-        metrics.bots.exclamation_density,
-        metrics.bots.follower_friend_ratio,
-        metrics.bots.daily_post_rate,
-        metrics.bots.engagement_rate,
-        metrics.bots.link_count,
-        metrics.bots.is_default_avatar,
-        metrics.bots.is_random_name,
-        metrics.bots.sentiment_score,
-        metrics.bots.topic_count,
-        metrics.bots.post_interval_variance
-    ];
+// ==================== TOPIC DETECTION ====================
 
-    const humanVals = [
-        metrics.humans.exclamation_density,
-        metrics.humans.follower_friend_ratio,
-        metrics.humans.daily_post_rate,
-        metrics.humans.engagement_rate,
-        metrics.humans.link_count,
-        metrics.humans.is_default_avatar,
-        metrics.humans.is_random_name,
-        metrics.humans.sentiment_score,
-        metrics.humans.topic_count,
-        metrics.humans.post_interval_variance
-    ];
+const topicBtn = document.getElementById('topicBtn');
+if (topicBtn) {
+    topicBtn.addEventListener('click', async () => {
+        const topic = document.getElementById('topicInput').value.trim();
+        if (!topic) { alert('请输入话题关键词'); return; }
 
-    radarChart.setOption({
-        legend: {
-            data: ['水军机器矩阵', '正常人类样本'],
-            textStyle: { color: '#e6edf3' },
-            bottom: 0
-        },
+        const depth = parseInt(depthSlider.value);
+
+        // UI: loading state
+        topicBtn.disabled = true;
+        topicBtn.querySelector('.btn-text').style.display = 'none';
+        topicBtn.querySelector('.btn-loading').style.display = 'flex';
+        if (window._setParticleSpeed) window._setParticleSpeed(0.006);
+
+        try {
+            const res = await fetch('/api/detect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topic, limit: depth })
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                showError('topicResults', data.error);
+            } else {
+                renderTopicResults(data);
+            }
+        } catch (e) {
+            showError('topicResults', '请求失败：' + e.message);
+        } finally {
+            topicBtn.disabled = false;
+            topicBtn.querySelector('.btn-text').style.display = '';
+            topicBtn.querySelector('.btn-loading').style.display = 'none';
+            if (window._setParticleSpeed) window._setParticleSpeed(0.0008);
+        }
+    });
+}
+
+function showError(containerId, msg) {
+    const container = document.getElementById(containerId);
+    container.style.display = 'block';
+    container.innerHTML = `<div class="error-msg">⚠️ ${msg}</div>`;
+}
+
+function renderTopicResults(data) {
+    const container = document.getElementById('topicResults');
+    container.style.display = 'block';
+
+    const s = data.summary;
+    document.getElementById('stat-total').textContent = s.total_scanned;
+    document.getElementById('stat-bots').textContent = s.bot_count;
+    document.getElementById('stat-ratio').textContent = s.bot_ratio + '%';
+
+    const sent = s.overall_sentiment;
+    const sentEl = document.getElementById('stat-sentiment');
+    sentEl.textContent = (sent * 100).toFixed(0);
+
+    renderPieChart(s.total_scanned - s.bot_count, s.bot_count);
+
+    if (data.radar_metrics && data.radar_metrics.humans && data.radar_metrics.bots) {
+        renderRadarChart('radarChart', data.radar_metrics.humans, data.radar_metrics.bots);
+    }
+
+    renderSuspects(data.suspects || []);
+}
+
+function renderPieChart(humans, bots) {
+    const chart = echarts.init(document.getElementById('pieChart'));
+    chart.setOption({
+        tooltip: { trigger: 'item', backgroundColor: '#fff', borderColor: '#e8e0d4', textStyle: { color: '#2c2418' } },
+        legend: { bottom: 10, textStyle: { color: '#8a7e6b' } },
         series: [{
-            name: '威胁分析',
-            type: 'radar',
+            type: 'pie',
+            radius: ['45%', '70%'],
+            itemStyle: { borderRadius: 6, borderColor: '#f5f0eb', borderWidth: 3 },
+            label: { show: true, color: '#2c2418', formatter: '{b}\n{d}%' },
             data: [
-                {
-                    value: botVals,
-                    name: '水军机器矩阵',
-                    itemStyle: { color: '#ff003c' },
-                    areaStyle: { color: 'rgba(255, 0, 60, 0.3)' },
-                    lineStyle: { width: 2 }
-                },
-                {
-                    value: humanVals,
-                    name: '正常人类样本',
-                    itemStyle: { color: '#00f2fe' },
-                    areaStyle: { color: 'rgba(0, 242, 254, 0.2)' },
-                    lineStyle: { type: 'dashed' }
-                }
+                { value: humans, name: '正常用户', itemStyle: { color: '#7cb87a' } },
+                { value: bots, name: '疑似水军', itemStyle: { color: '#c96b5e' } }
             ]
         }]
     });
+    window.addEventListener('resize', () => chart.resize());
 }
 
-function updateSuspects(suspects) {
-    suspectList.innerHTML = '';
+function renderRadarChart(containerId, humansData, botsData) {
+    const featureNames = {
+        daily_post_rate: '发帖频率', human_likeness_score: '语义拟人度',
+        exclamation_density: '感叹号密度', is_random_name: '乱码昵称',
+        engagement_count: '互动量', is_verified: 'V认证',
+        sentiment_score: '情感极性', topic_diversity: '话题多样性',
+        post_interval_variance: '间隔方差'
+    };
 
-    if (!suspects || suspects.length === 0) {
-        suspectList.innerHTML = '<li class="empty-state">当前水域无严重污染...</li>';
+    const keys = Object.keys(featureNames);
+    const indicators = keys.map(k => ({
+        name: featureNames[k],
+        max: Math.max(humansData[k] || 0, botsData[k] || 0, 1) * 1.3
+    }));
+
+    const chart = echarts.init(document.getElementById(containerId));
+    chart.setOption({
+        tooltip: { backgroundColor: '#fff', borderColor: '#e8e0d4', textStyle: { color: '#2c2418' } },
+        legend: { bottom: 5, textStyle: { color: '#8a7e6b' }, data: ['正常用户', '疑似水军'] },
+        radar: {
+            indicator: indicators,
+            axisName: { color: '#8a7e6b', fontSize: 11 },
+            splitArea: { areaStyle: { color: ['transparent'] } },
+            axisLine: { lineStyle: { color: '#e8e0d4' } },
+            splitLine: { lineStyle: { color: '#e8e0d4' } }
+        },
+        series: [{
+            type: 'radar',
+            data: [
+                { value: keys.map(k => humansData[k] || 0), name: '正常用户', areaStyle: { color: 'rgba(124,184,122,0.2)' }, lineStyle: { color: '#7cb87a' }, itemStyle: { color: '#7cb87a' } },
+                { value: keys.map(k => botsData[k] || 0), name: '疑似水军', areaStyle: { color: 'rgba(201,107,94,0.2)' }, lineStyle: { color: '#c96b5e' }, itemStyle: { color: '#c96b5e' } }
+            ]
+        }]
+    });
+    window.addEventListener('resize', () => chart.resize());
+}
+
+function renderSuspects(suspects) {
+    const list = document.getElementById('suspectList');
+    if (!suspects.length) {
+        list.innerHTML = '<p style="color:var(--text-dim);padding:20px;text-align:center;">未检出高危水军账号 🎉</p>';
         return;
     }
+    list.innerHTML = suspects.map(s => {
+        const score = (s.bot_probability * 100).toFixed(0);
+        const level = score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';
+        const text = (s['微博正文'] || s.text || '').substring(0, 80);
+        const name = s['用户昵称'] || s.screen_name || 'UID:' + s.user_id;
+        return `
+            <div class="suspect-item">
+                <div class="suspect-score ${level}">${score}%</div>
+                <div class="suspect-info">
+                    <div class="suspect-name">${escapeHtml(name)}</div>
+                    <div class="suspect-text">"${escapeHtml(text)}"</div>
+                    <div class="suspect-meta">
+                        <span>粉丝 ${s.followers_count || 0}</span>
+                        <span>发帖 ${s.statuses_count || 0}</span>
+                    </div>
+                </div>
+            </div>`;
+    }).join('');
+}
 
-    suspects.forEach(bot => {
-        const li = document.createElement('li');
-        li.className = 'suspect-item';
 
-        // Handle avatar parsing
-        const avatarUrl = bot['头像url'] && bot['头像url'] !== 'null' ? bot['头像url'] : 'https://tva1.sinaimg.cn/default/images/default_avatar_male_50.gif';
+// ==================== SINGLE USER DETECTION ====================
 
-        li.innerHTML = `
-            <div class="avatar-wrapper">
-                <img src="${avatarUrl}" alt="Bot Face" onerror="this.src='https://tva1.sinaimg.cn/default/images/default_avatar_male_50.gif'">
-            </div>
-            <div class="suspect-info">
-                <h5>${bot['用户昵称'] || 'Anonymous_Bot'}</h5>
-                <p>IP源: ${bot['ip'] || '未知暗网'} | 历史帖子: ${bot['statuses_count'] || 0}</p>
-            </div>
-            <div class="threat-score">99.9%</div>
-        `;
-        suspectList.appendChild(li);
+const userBtn = document.getElementById('userBtn');
+if (userBtn) {
+    userBtn.addEventListener('click', async () => {
+        const uid = document.getElementById('uidInput').value.trim();
+        if (!uid) { alert('请输入微博用户 UID'); return; }
+
+        userBtn.disabled = true;
+        userBtn.querySelector('.btn-text').style.display = 'none';
+        userBtn.querySelector('.btn-loading').style.display = 'flex';
+        if (window._setParticleSpeed) window._setParticleSpeed(0.005);
+
+        try {
+            const res = await fetch('/api/check_user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid })
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                showError('userResults', data.error);
+            } else {
+                renderUserResults(data);
+            }
+        } catch (e) {
+            showError('userResults', '请求失败：' + e.message);
+        } finally {
+            userBtn.disabled = false;
+            userBtn.querySelector('.btn-text').style.display = '';
+            userBtn.querySelector('.btn-loading').style.display = 'none';
+            if (window._setParticleSpeed) window._setParticleSpeed(0.0008);
+        }
     });
 }
 
-// Core Execution
-scanBtn.addEventListener('click', async () => {
-    const topic = topicInput.value.trim();
-    const limit = limitSlider.value;
+function renderUserResults(data) {
+    const container = document.getElementById('userResults');
+    container.style.display = 'block';
 
-    if (!topic) {
-        alert("请输入目标对象！");
-        return;
+    const info = data.user_info || {};
+    document.getElementById('userName').textContent = info.screen_name || 'UID: ' + info.uid;
+    document.getElementById('userMeta').textContent =
+        `粉丝 ${info.followers_count || 0} · 关注 ${info.friends_count || 0} · 微博 ${info.statuses_count || 0}`;
+
+    const avatarEl = document.getElementById('userAvatar');
+    if (info.avatar_hd && info.avatar_hd.length > 10) {
+        avatarEl.innerHTML = `<img src="${info.avatar_hd}" alt="avatar">`;
+    } else {
+        avatarEl.textContent = (info.screen_name || '?')[0];
     }
 
-    // Freeze UI
-    loadingOverlay.classList.remove('hidden');
-    scanBtn.disabled = true;
+    // Gauge
+    const score = data.suspicion_score || 0;
+    const pct = Math.round(score * 100);
+    const circumference = 2 * Math.PI * 54;
+    const offset = circumference * (1 - score);
 
-    try {
-        const response = await fetch('/api/detect', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ topic, limit })
-        });
+    const arc = document.getElementById('gaugeArc');
+    arc.style.strokeDashoffset = offset;
+    arc.style.stroke = score >= 0.7 ? '#c96b5e' : score >= 0.4 ? '#c9a84c' : '#7cb87a';
 
-        const data = await response.json();
+    const gaugeValue = document.getElementById('gaugeValue');
+    gaugeValue.textContent = pct + '%';
+    gaugeValue.style.color = score >= 0.7 ? '#c96b5e' : score >= 0.4 ? '#c9a84c' : '#7cb87a';
 
-        if (data.status === 'success') {
-            updateMetrics(data.summary);
-            updateRadar(data.radar_metrics);
-            updateSuspects(data.suspects);
-        } else {
-            alert(`防线渗透失败: ${data.error}`);
-        }
+    const labelMap = { 0: '确定真人', 1: '大概率真人', 2: '不确定', 3: '比较可疑', 4: '几乎确定水军' };
+    document.getElementById('gaugeLabel').textContent = labelMap[data.suspicion_label] || '可疑度评分';
 
-    } catch (err) {
-        console.error(err);
-        alert(`网络或引擎故障: ${err.message}`);
-    } finally {
-        loadingOverlay.classList.add('hidden');
-        scanBtn.disabled = false;
-    }
-});
+    if (data.features) renderUserRadar(data.features);
+    if (data.reasons) renderReasons(data.reasons);
+}
 
-// Demo Mode - loads pre-existing data without live crawling
-demoBtn.addEventListener('click', async () => {
-    loadingOverlay.classList.remove('hidden');
-    demoBtn.disabled = true;
+function renderUserRadar(features) {
+    const featureNames = {
+        daily_post_rate: '发帖频率', human_likeness_score: '语义拟人度',
+        exclamation_density: '感叹号密度', is_random_name: '乱码昵称',
+        engagement_count: '互动量', is_verified: 'V认证',
+        sentiment_score: '情感极性', topic_diversity: '话题多样性',
+        post_interval_variance: '间隔方差'
+    };
 
-    try {
-        const response = await fetch('/api/demo', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-        });
+    const keys = Object.keys(featureNames);
+    const maxVals = {
+        daily_post_rate: 5, human_likeness_score: 1, exclamation_density: 0.1,
+        is_random_name: 1, engagement_count: 100, is_verified: 1,
+        sentiment_score: 1, topic_diversity: 1, post_interval_variance: 5
+    };
 
-        const data = await response.json();
+    const indicators = keys.map(k => ({ name: featureNames[k], max: 1 }));
+    const values = keys.map(k => Math.min(1, (features[k] || 0) / maxVals[k]));
 
-        if (data.status === 'success') {
-            updateMetrics(data.summary);
-            updateRadar(data.radar_metrics);
-            updateSuspects(data.suspects);
-        } else {
-            alert(`Demo加载失败: ${data.error}`);
-        }
-    } catch (err) {
-        console.error(err);
-        alert(`Demo加载失败: ${err.message}`);
-    } finally {
-        loadingOverlay.classList.add('hidden');
-        demoBtn.disabled = false;
-    }
-});
+    const chart = echarts.init(document.getElementById('userRadar'));
+    chart.setOption({
+        tooltip: { backgroundColor: '#fff', borderColor: '#e8e0d4', textStyle: { color: '#2c2418' } },
+        radar: {
+            indicator: indicators,
+            axisName: { color: '#8a7e6b', fontSize: 11 },
+            splitArea: { areaStyle: { color: ['transparent'] } },
+            axisLine: { lineStyle: { color: '#e8e0d4' } },
+            splitLine: { lineStyle: { color: '#e8e0d4' } }
+        },
+        series: [{
+            type: 'radar',
+            data: [{
+                value: values, name: '特征画像',
+                areaStyle: { color: 'rgba(201,168,76,0.2)' },
+                lineStyle: { color: '#c9a84c', width: 2 },
+                itemStyle: { color: '#c9a84c' }
+            }]
+        }]
+    });
+    window.addEventListener('resize', () => chart.resize());
+}
+
+function renderReasons(reasons) {
+    const list = document.getElementById('reasonsList');
+    list.innerHTML = reasons.map(r => {
+        const cls = r.level === 'high' ? 'flag-high' : r.level === 'medium' ? 'flag-medium' : 'flag-low';
+        return `<li class="${cls}">${escapeHtml(r.text)}</li>`;
+    }).join('');
+}
+
+
+// ==================== UTILS ====================
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}

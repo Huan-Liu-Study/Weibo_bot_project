@@ -1,4 +1,6 @@
 import pandas as pd
+import numpy as np
+
 import subprocess
 import time
 import requests
@@ -214,9 +216,12 @@ def run_pipeline(topic, limit=20):
         try:
             dts = sorted([pd.to_datetime(t).replace(tzinfo=None) for t in times_list])
             span_days = (dts[-1] - dts[0]).total_seconds() / 86400.0  # 最新帖到最老帖的天数
-            if span_days < 0.01:  # 所有帖子几乎同时发的（<15分钟）
-                return float(len(times_list))  # 视为一天内发了这么多
-            return len(times_list) / span_days
+            if span_days < 0.01:
+                rate = float(len(times_list))
+            else:
+                rate = len(times_list) / span_days
+            return float(min(50.0, rate))
+
         except Exception:
             return 0.0
 
@@ -324,11 +329,16 @@ def run_pipeline(topic, limit=20):
         topics = row.get('recent_topics', [])
         times_list = row.get('recent_post_times', [])
         if not isinstance(times_list, list) or len(times_list) == 0:
-            return 0.5  # 无数据时返回中性值
-        if not isinstance(topics, list) or len(topics) == 0:
-            return 0.5  # 没有话题标签 → 可能是真人日常帖，给中性值而非0
-        unique_topics = set(topics)
-        return len(unique_topics) / len(times_list)
+            return 0.5
+        n_posts = len(times_list)
+        if not isinstance(topics, list):
+            topics = []
+        m_tags = len(topics)
+        unique_tags = len(set(topics))
+        untagged_posts = max(0, n_posts - m_tags)
+        score = (unique_tags + untagged_posts) / n_posts
+        return float(min(1.0, score))
+
         
     df['topic_diversity'] = df.apply(calc_topic_diversity, axis=1)
 
@@ -340,7 +350,6 @@ def run_pipeline(topic, limit=20):
 
     # --- 特征 15: post_interval_variance （近期发帖时间间隔方差，时序核心特征）---
     def _calc_variance(times_list):
-        import numpy as np
         if not times_list or len(times_list) < 2:
             return 0.0
         try:
@@ -352,6 +361,12 @@ def run_pipeline(topic, limit=20):
             return 0.0
 
     df['post_interval_variance'] = df.get('recent_post_times', pd.Series([[]]*len(df))).apply(_calc_variance)
+
+    # ====== log1p scaling (aligned with label_existing_data.py) ======
+    for col in ['follower_friend_ratio', 'daily_post_rate', 'post_interval_variance']:
+        if col in df.columns:
+            df[col] = np.log1p(df[col].clip(lower=0))
+
 
     # 发布工具（保留用于前端展示）
     source_col = '发布工具' if '发布工具' in df.columns else 'source'
