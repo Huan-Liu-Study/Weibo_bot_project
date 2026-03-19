@@ -118,9 +118,9 @@ async def _fetch_all(uids, headers):
         return await asyncio.gather(*[_fetch_one(s, uid, headers) for uid in uids])
 
 
-# ===================== 特征计算 =====================
+# ===================== 特征计算 (9 维模型核心) =====================
 
-def compute_15_features(df):
+def compute_model_features(df):
     from snownlp import SnowNLP
 
     cc = '微博正文' if '微博正文' in df.columns else 'text'
@@ -130,10 +130,6 @@ def compute_15_features(df):
 
     for c in ['followers_count', 'friends_count', 'statuses_count']:
         df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(int)
-
-    # 1 follower_friend_ratio
-    df['follower_friend_ratio'] = df.apply(
-        lambda r: r['followers_count'] / r['friends_count'] if r['friends_count'] > 0 else float(r['followers_count']), axis=1)
 
     # ====== 统一解析：将 CSV 中存储的字符串格式列表还原为 Python list ======
     import ast
@@ -202,13 +198,6 @@ def compute_15_features(df):
     # 4 exclamation_density
     df['exclamation_density'] = df[cc].apply(lambda x: (x.count('!') + x.count('\uff01')) / max(len(x), 1))
 
-    # 5 link_count
-    df['link_count'] = df[cc].apply(lambda x: len(re.findall(r'https?://', x)))
-
-    # 6 is_default_avatar
-    av = df.get('avatar_hd', df.get('头像url', pd.Series([''] * len(df)))).astype(str)
-    df['is_default_avatar'] = av.apply(lambda x: 1 if 'default' in x.lower() or ('tvax' not in x and 'tva' not in x and len(x) > 5) else 0)
-
     # 7 is_random_name
     df['is_random_name'] = df[nc].apply(lambda x: 1 if re.search(r'\d{5,}', x) else 0)
 
@@ -246,13 +235,7 @@ def compute_15_features(df):
         except: return 0.5
     df['sentiment_score'] = df[cc].apply(_sent)
 
-    # 11 post_hour
-    tc = '发布时间' if '发布时间' in df.columns else 'created_at'
-    df['post_hour'] = df.get(tc, pd.Series([''] * len(df))).apply(
-        lambda t: pd.to_datetime(str(t)).hour if pd.notna(t) and str(t) != 'nan' else 12)
-
-    # 12 desc_len
-    df['desc_len'] = df.get('description', pd.Series([''] * len(df))).astype(str).apply(len)
+    # 10 sentiment_score
 
     # 13 topic_diversity (取代旧的urank)
     def calc_topic_diversity(row):
@@ -278,10 +261,7 @@ def compute_15_features(df):
         
     df['topic_diversity'] = df.apply(calc_topic_diversity, axis=1)
 
-    # 14 topic_count
-    tpc = '话题' if '话题' in df.columns else 'topics'
-    df['topic_count'] = df.get(tpc, pd.Series([''] * len(df))).astype(str).apply(
-        lambda x: len([t for t in x.split(',') if t.strip()]) if x and x != 'nan' else 0)
+    # 13 topic_diversity
 
     # 15 post_interval_variance (Using Standard Deviation so <1 hour math doesn't shrink to microscopic numbers)
     def _calc_variance(times_list):
@@ -300,8 +280,8 @@ def compute_15_features(df):
             
     df['post_interval_variance'] = df.get('recent_post_times', pd.Series([[]]*len(df))).apply(_calc_variance)
 
-    # ====== 对数缩放：压缩极端范围特征，让模型公平学习所有维度 ======
-    for col in ['follower_friend_ratio', 'daily_post_rate', 'post_interval_variance']:
+    # ====== 对数缩放 ======
+    for col in ['daily_post_rate', 'post_interval_variance']:
         if col in df.columns:
             df[col] = np.log1p(df[col].clip(lower=0))
 
@@ -359,8 +339,8 @@ def main():
         print(f"  [DEBUG] UID {r['uid']} 获取到 {posts_len} 条近期动态。")
 
     # 计算特征
-    print("\n  计算 15 维特征（含时序和情感分析，约 30 秒）...")
-    df = compute_15_features(df)
+    print("\n  计算 9 维核心模型特征...")
+    df = compute_model_features(df)
 
     # 开始标注 — 按用户去重，每个用户只标注一次
     print("\n" + "=" * 60)
@@ -468,15 +448,16 @@ def main():
         elif var_score < 5:     var_level = "? 一般"
         else:                   var_level = "✓ 随机（像真人）"
         
-        hl_val = float(row.get('human_likeness_score', 0))
-
         print(f"\n  ┌─ 关键特征 {'─'*40}")
         print(f"  │ ★★★ 发帖间隔标准差: {var_score:.2f} 小时  {var_level}")
         print(f"  │ ★★★ 日均发帖率:     {dpr:.1f} 帖/天  {dpr_level}{dpr_note}")
         print(f"  │ ★★★ 互动率:         {er_display}  (均互动{er*followers:.0f}/粉丝{followers})")
+        
+        td_val = float(row.get('topic_diversity', 0.5))
+        hl_val = float(row.get('human_likeness_score', 0))
+        
         print(f"  │ ★★  话题多样性:     {td_val*100:.0f}% (越低越像长期刷榜机器)")
         print(f"  │ ★★  语义拟人度:     {hl_val*100:.0f}% (越高越像真人)")
-        print(f"  │ ★   粉关比:         {ffr_display}")
         print(f"  │     情感极性:       {row.get('sentiment_score',0.5):.2f}  ({'偏正面' if row.get('sentiment_score',0.5) > 0.6 else '偏负面' if row.get('sentiment_score',0.5) < 0.4 else '中性'})")
         print(f"  └{'─'*50}")
 

@@ -162,7 +162,7 @@ def analyze_single_user(uid):
     """分析单个用户的可疑度"""
     import aiohttp
     import joblib
-    from label_existing_data import _fetch_one, compute_15_features
+    from label_existing_data import _fetch_one, compute_model_features
 
     # 1. 获取用户画像
     cookie = _load_cookie()
@@ -199,7 +199,7 @@ def analyze_single_user(uid):
         'verified_reason': user_info.get('verified_reason', ''),
     }])
 
-    df = compute_15_features(df)
+    df = compute_model_features(df)
 
     # 3. 模型预测
     feature_cols = [
@@ -304,6 +304,18 @@ def generate_reasons(features, score, user_info):
     # 乱码昵称
     if features.get('is_random_name', 0) == 1:
         reasons.append({"level": "high", "text": "🔴 用户昵称含5位以上连续数字，疑似批量注册账号"})
+
+    # 感叹号密度
+    ed = features.get('exclamation_density', 0)
+    if ed > 0.1:
+        reasons.append({"level": "medium", "text": f"🟡 文本感叹号密度极高（{ed*100:.1f}%），带有强烈情绪诱导特征"})
+
+    # 情感得分
+    ss = features.get('sentiment_score', 0.5)
+    if ss < 0.2:
+        reasons.append({"level": "medium", "text": f"🟡 情感倾向极负面（{ss:.2f}），可能涉及负面舆论引导"})
+    elif ss > 0.8:
+        reasons.append({"level": "low", "text": f"🟢 情感倾向积极正面（{ss:.2f}）"})
 
     # V认证
     vr = user_info.get('verified_reason', '')

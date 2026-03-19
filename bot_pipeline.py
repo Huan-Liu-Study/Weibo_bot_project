@@ -37,11 +37,9 @@ async def fetch_user_info(session, uid, headers):
     result = {
         'uid': uid,
         'followers_count': 0,
-        'friends_count': 0,
         'statuses_count': 0,
         'created_at': '',
         'description': '',
-        'gender': 'f',
         'avatar_hd': '',
         'recent_post_times': [],
         'recent_engagements': [],
@@ -58,12 +56,9 @@ async def fetch_user_info(session, uid, headers):
                 user_info = data.get('data', {}).get('user', {})
                 if user_info:
                     result['followers_count'] = user_info.get('followers_count', 0)
-                    result['friends_count'] = user_info.get('friends_count', 0)
                     result['statuses_count'] = user_info.get('statuses_count', 0)
                     result['created_at'] = user_info.get('created_at', '')
                     result['description'] = user_info.get('description', '')
-                    result['gender'] = user_info.get('gender', 'f')
-                    result['urank'] = user_info.get('urank', 0)
                     result['avatar_hd'] = user_info.get('avatar_hd', '')
                     result['verified_reason'] = user_info.get('verified_reason', '')
     except Exception as e:
@@ -195,10 +190,8 @@ def run_pipeline(topic, limit=20):
     user_features = {r['uid']: r for r in user_results}
 
     df['followers_count'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('followers_count', 0))
-    df['friends_count'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('friends_count', 0))
     df['statuses_count'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('statuses_count', 0))
     df['account_created_at'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('created_at', ''))
-    df['description'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('description', ''))
     df['description'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('description', ''))
     df['avatar_hd'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('avatar_hd', ''))
     df['recent_post_times'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('recent_post_times', []))
@@ -206,11 +199,11 @@ def run_pipeline(topic, limit=20):
     df['recent_topics'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('recent_topics', []))
     df['verified_reason'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('verified_reason', ''))
 
-    for col in ['followers_count', 'friends_count', 'statuses_count']:
+    for col in ['followers_count', 'statuses_count']:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype('int64')
 
     # ============================================================
-    # 特征工程 (Feature Engineering) — 15 维最终特征集
+    # 特征工程 (Feature Engineering) — 9 维核心模型特征
     # ============================================================
 
     # 修复列名映射: weibo_search 爬虫返回的是 '微博正文', 用户昵称为 '用户昵称' 等
@@ -220,12 +213,7 @@ def run_pipeline(topic, limit=20):
     name_col = '用户昵称' if '用户昵称' in df.columns else 'ûǳ'
     df[name_col] = df.get(name_col, df.get('ûǳ', pd.Series([''] * len(df)))).astype(str).fillna('')
 
-    # --- 特征 1: follower_friend_ratio （粉丝/关注比）---
-    df['follower_friend_ratio'] = df.apply(
-        lambda row: row['followers_count'] / row['friends_count'] if row['friends_count'] > 0 else row['followers_count'], axis=1
-    )
-
-    # --- 特征 2: daily_post_rate （近期实际日均发帖率）---
+    # --- 特征 1: daily_post_rate （近期实际日均发帖率）---
     # 使用 API 返回的近 ~20 条帖子的时间戳计算真实的近期发帖频率
     # 公式: 帖子数 / 时间跨度天数
     def get_daily_rate(row):
@@ -276,25 +264,13 @@ def run_pipeline(topic, limit=20):
 
     df['human_likeness_score'] = df[content_col].apply(_calc_human_likeness)
 
-    # --- 特征 4: exclamation_density （感叹号密度）---
+    # --- 特征 3: exclamation_density （感叹号密度）---
     def calc_exclamation_density(text):
         if len(text) == 0:
             return 0.0
         return (text.count('!') + text.count('！')) / len(text)
 
     df['exclamation_density'] = df[content_col].apply(calc_exclamation_density)
-
-    # --- 特征 5: link_count （链接数量，原 has_link 0/1 → 连续值）---
-    df['link_count'] = df[content_col].apply(lambda x: len(re.findall(r'https?://', x, re.IGNORECASE)))
-
-    # --- 特征 6: is_default_avatar （是否默认头像）---
-    # 优先使用 API 返回的高清头像 URL，其次使用爬虫提取的头像
-    avatar_col = '头像url' if '头像url' in df.columns else 'ͷurl'
-    df['_avatar_final'] = df['avatar_hd'].where(df['avatar_hd'].astype(str).str.len() > 5,
-                                                  df.get(avatar_col, pd.Series([''] * len(df))).astype(str))
-    df['is_default_avatar'] = df['_avatar_final'].apply(
-        lambda x: 1 if 'default' in str(x).lower() or ('tvax' not in str(x) and 'tva' not in str(x)) else 0
-    )
 
     # --- 特征 7: is_random_name （是否数字乱码昵称）---
     df['is_random_name'] = df[name_col].apply(lambda x: 1 if re.search(r'\d{5,}', x) else 0)
@@ -328,19 +304,7 @@ def run_pipeline(topic, limit=20):
 
     df['sentiment_score'] = df[content_col].apply(_get_sentiment)
 
-    # --- 特征 11: post_hour （发帖时间-小时，时序特征）---
-    def extract_hour(time_str):
-        try:
-            dt = pd.to_datetime(str(time_str))
-            return dt.hour
-        except:
-            return 12  # 解析失败时用正午作为默认值
-
-    created_at_col = '发布时间' if '发布时间' in df.columns else 'created_at'
-    df['post_hour'] = df.get(created_at_col, df.get('created_at', pd.Series([''] * len(df)))).apply(extract_hour)
-
-    # --- 特征 12: desc_len （个人简介长度）---
-    df['desc_len'] = df['description'].astype(str).apply(len)
+    # --- 特征 10: sentiment_score （情感极性）---
 
     # --- 特征 13: topic_diversity (取代旧的urank) ---
     # 计算公式: 独立话题数量 / 近期发帖总数 (没发帖或没话题则为0)
@@ -361,11 +325,7 @@ def run_pipeline(topic, limit=20):
         
     df['topic_diversity'] = df.apply(calc_topic_diversity, axis=1)
 
-    # --- 特征 14: topic_count （话题标签数量）---
-    topics_col = '话题' if '话题' in df.columns else 'topics'
-    df['topic_count'] = df.get(topics_col, df.get('topics', pd.Series([''] * len(df)))).astype(str).apply(
-        lambda x: len([t for t in x.split(',') if t.strip()]) if x and x != 'nan' else 0
-    )
+    # --- 特征 13: topic_diversity ---
 
     # --- 特征 15: post_interval_variance （近期发帖时间间隔方差，时序核心特征）---
     def _calc_variance(times_list):
@@ -382,7 +342,7 @@ def run_pipeline(topic, limit=20):
     df['post_interval_variance'] = df.get('recent_post_times', pd.Series([[]]*len(df))).apply(_calc_variance)
 
     # ====== log1p scaling (aligned with label_existing_data.py) ======
-    for col in ['follower_friend_ratio', 'daily_post_rate', 'post_interval_variance']:
+    for col in ['daily_post_rate', 'post_interval_variance']:
         if col in df.columns:
             df[col] = np.log1p(df[col].clip(lower=0))
 
@@ -421,9 +381,8 @@ def run_pipeline(topic, limit=20):
         score = 0.0
         total_weight = 0.0
 
-        # ★★★ 发帖间隔标准差 (权重 0.20) — 机器发帖极规律，方差趋近 0
-        # 注意: 现在是 log1p 缩放后的值，log1p(0.5)≈0.41, log1p(2)≈1.10, log1p(5)≈1.79
-        w = 0.20
+        # ★★★ 发帖间隔标准差 (权重 0.25) — 机器发帖极规律，方差趋近 0
+        w = 0.25
         piv = float(row.get('post_interval_variance', 0))
         if piv < 0.41:      sub = 1.0   # log1p(0.5)≈0.41 → 极其规律
         elif piv < 1.10:    sub = 0.7   # log1p(2)≈1.10
@@ -433,9 +392,8 @@ def run_pipeline(topic, limit=20):
         total_weight += w
 
 
-        # ★★★ 日均发帖率 (权重 0.18)
-        # log1p(50)≈3.93, log1p(20)≈3.04, log1p(10)≈2.40, log1p(5)≈1.79
-        w = 0.18
+        # ★★★ 日均发帖率 (权重 0.25)
+        w = 0.25
         dpr = float(row.get('daily_post_rate', 0))
         if dpr > 3.93:      sub = 1.0   # log1p(50)
         elif dpr > 3.04:    sub = 0.7   # log1p(20)
@@ -445,51 +403,24 @@ def run_pipeline(topic, limit=20):
         score += w * sub
         total_weight += w
 
-        # ★★★ 平均互动率 (权重 0.18) — 发了就跑的典型水军
-        w = 0.18
-        # 以前叫 rate，现在叫 count (平均互动绝对量)，由于已经放缩过(log1p)，这里是对数级的分数
+        # ★★★ 平均互动率 (权重 0.25) — 发了就跑的典型水军
+        w = 0.25
         ec = float(row.get('engagement_count', 0))
         if ec == 0:          sub = 1.0
-        elif ec < 0.69:      sub = 0.7  # log1p(1) = 0.693 (平均1个互动)
-        elif ec < 1.6:       sub = 0.3  # log1p(4) = 1.609 (平均4个互动)
-        else:                sub = 0.0  # 大于4个互动的算作健康活人
+        elif ec < 0.69:      sub = 0.7  # log1p(1) = 0.693
+        elif ec < 1.6:       sub = 0.3  # log1p(4) = 1.609
+        else:                sub = 0.0
         score += w * sub
         total_weight += w
 
-        # ★★ 数字乱码名 (权重 0.10) — 批量注册硬特征
-        w = 0.10
+        # ★★ 数字乱码名 (权重 0.15)
+        w = 0.15
         sub = 1.0 if int(row.get('is_random_name', 0)) == 1 else 0.0
         score += w * sub
         total_weight += w
 
-        # ★★ 默认头像 (权重 0.08)
-        w = 0.08
-        sub = 1.0 if int(row.get('is_default_avatar', 0)) == 1 else 0.0
-        score += w * sub
-        total_weight += w
-
-        # ★ 粉关比 (权重 0.08)
-        w = 0.08
-        ffr = float(row.get('follower_friend_ratio', 1))
-        if ffr < 0.01:       sub = 1.0
-        elif ffr < 0.05:     sub = 0.6
-        elif ffr < 0.1:      sub = 0.3
-        else:                sub = 0.0
-        score += w * sub
-        total_weight += w
-
-        # ★ 外链数量 (权重 0.06)
-        w = 0.06
-        lc = int(row.get('link_count', 0))
-        if lc > 3:           sub = 1.0
-        elif lc > 1:         sub = 0.5
-        elif lc == 1:        sub = 0.2
-        else:                sub = 0.0
-        score += w * sub
-        total_weight += w
-
-        # ★ 感叹号密度 (权重 0.04) — 真人也爱用，权重最低
-        w = 0.04
+        # ★ 感叹号密度 (权重 0.10)
+        w = 0.10
         ed = float(row.get('exclamation_density', 0))
         if ed > 0.08:        sub = 1.0
         elif ed > 0.04:      sub = 0.5
@@ -539,8 +470,8 @@ def run_pipeline(topic, limit=20):
 
     # --- 步骤 3: 融合最终可疑度 ---
     if model_available:
-        # 40% 规则 + 60% 模型
-        df['suspicion_score'] = (0.4 * df['rule_suspicion'] + 0.6 * df['model_confidence']).round(4)
+        # 基于用户要求：模型占 80%，规则占 20%
+        df['suspicion_score'] = (0.2 * df['rule_suspicion'] + 0.8 * df['model_confidence']).round(4)
     else:
         # 没有模型时 100% 使用规则评分
         df['suspicion_score'] = df['rule_suspicion']

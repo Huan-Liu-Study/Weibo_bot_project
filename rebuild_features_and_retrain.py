@@ -29,8 +29,8 @@ from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.metrics import classification_report, confusion_matrix
 import os
 
-# 特征计算已迁移到 label_existing_data.py 的 compute_15_features 中
-from label_existing_data import compute_15_features, _fetch_all
+# 特征计算已迁移到 label_existing_data.py 的 compute_model_features 中
+from label_existing_data import compute_model_features, _fetch_all
 
 
 # ===================== 1. Cookie 读取 =====================
@@ -47,7 +47,7 @@ def _load_cookie_from_settings():
 
 def main():
     print("=" * 60)
-    print("  🔬 15 维特征重建 & RandomForest 重训练")
+    print("  🔬 9 维核心特征重建 & RandomForest 重训练")
     print("=" * 60)
 
     # 1. 加载现有的 CSV (使用 _backup 避免覆盖问题，如果没有再用原文件)
@@ -105,11 +105,11 @@ def main():
     success = sum(1 for r in user_results if r and (r.get('followers_count', 0) > 0 or len(r.get('recent_post_times', [])) > 0))
     print(f"  ✅ 成功获取 {success}/{len(unique_users)} 个用户画像和时间线")
 
-    # 计算 15 维新特征
-    print("\n⚙️ 计算完整的 15 维语义特征...")
-    df = compute_15_features(df)
+    # 计算 9 维核心新特征
+    print("\n⚙️ 计算完整的 9 维语义特征...")
+    df = compute_model_features(df)
 
-    # 使用新的 15 维特征和连续打分逻辑
+    # 使用新的 9 维特征和连续打分逻辑
     feature_cols = [
                 'daily_post_rate', 'human_likeness_score',
                 'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
@@ -153,8 +153,8 @@ def main():
     joblib.dump(rf_final, model_path)
     print(f"\n💾 新模型已保存: {model_path}")
 
-    # 保存带完整特征的数据集（用于后续分析）
-    output_path = 'golden_testset_15features.csv'
+    # 保存带完整特征的数据集
+    output_path = 'golden_testset_9features.csv'
     train_df.to_csv(output_path, index=False, encoding='utf-8-sig')
     print(f"📁 完整特征数据集已保存: {output_path}")
 

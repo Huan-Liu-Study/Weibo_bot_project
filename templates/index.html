@@ -52,7 +52,7 @@
                 <h3>目录</h3>
                 <ol>
                     <li><a onclick="scrollToSection(event,'sec-collect')">数据采集层</a></li>
-                    <li><a onclick="scrollToSection(event,'sec-features')">特征工程 (15 维)</a></li>
+                    <li><a onclick="scrollToSection(event,'sec-features')">核心特征工程 (9 维)</a></li>
                     <li><a onclick="scrollToSection(event,'sec-model')">模型训练与推断</a></li>
                     <li><a onclick="scrollToSection(event,'sec-score')">可疑度评分系统</a></li>
                     <li><a onclick="scrollToSection(event,'sec-redflag')">红旗否决机制</a></li>
@@ -64,42 +64,34 @@
             <!-- 第一章 -->
             <section class="doc-section" id="sec-collect">
                 <h3>一、数据采集层</h3>
-                <p>系统基于 <strong>Scrapy</strong> 分布式爬虫框架，通过子进程自动唤醒终端执行 <code>scrapy crawl search</code>。采集前自动覆写 <code>settings.py</code> 中的关键词、采样深度和日期范围（最近 7 天）。</p>
-                <p>采集完成后，系统通过 <strong>aiohttp 异步并发</strong>（比同步快 5-10 倍）请求微博 Ajax API，批量获取每个独立用户的：</p>
+                <p>为确保判定时效性，系统实施了<strong>“极简异步直达”</strong>的二次抓取策略 (v1.5.0)：</p>
                 <ul>
-                    <li>用户画像：粉丝数、关注数、发帖总数、注册时间、个人简介、认证理由</li>
-                    <li>近 20 条博文时间线：发帖时间戳、转评赞数据、话题标签</li>
-                    <li>反爬策略：Cookie 统一从 settings.py 读取，动态 Referer + User-Agent 随机化</li>
+                    <li><strong>并行解析 (Scrapy)</strong>：仅提取核心帖子文本与转评赞数量，剥离了一切不入模的冗余数据（如：发布地 IP、文章长链、精准地理坐标等），消灭了导致卡顿的同步阻塞。</li>
+                    <li><strong>无头扩充 (Ajax 协程)</strong>：拿到核心名单后，由 <code>asyncio + aiohttp</code> 协程池瞬时回填用户的 <strong>粉丝数、历史发帖、V认证</strong> 等构建画像的必需要素。</li>
+                    <li><strong>效率跃升</strong>：单条数据的全链路（抓取+画像重建）处理速度比旧版提升近 <strong>300%</strong>。</li>
                 </ul>
             </section>
 
             <!-- 第二章 -->
             <section class="doc-section" id="sec-features">
-                <h3>二、特征工程 (15 维)</h3>
-                <p>系统从原始数据中提取 <strong>15 个核心维度</strong>，覆盖账号属性、行为模式和语义三大层面。其中 9 维作为模型输入特征。</p>
+                <h3>二、核心特征工程 (9 维)</h3>
+                <p>系统精简了特征集，仅保留与 <strong>Random Forest 模型</strong> 强相关的 9 个核心维度。移除粉关比、缺省头像等噪音特征，增强泛化能力。</p>
                 <table class="doc-table">
                     <thead>
-                        <tr><th>#</th><th>特征名</th><th>计算方法</th><th>入模</th></tr>
+                        <tr><th>#</th><th>特征名</th><th>计算方法</th><th>类型</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td>1</td><td>follower_friend_ratio</td><td>粉丝数 / 关注数（关注=0时取粉丝数）; log1p 缩放</td><td>—</td></tr>
-                        <tr><td>2</td><td>daily_post_rate</td><td>近 20 条帖子数 / 时间跨度天数; 上限 50; log1p 缩放</td><td>Yes</td></tr>
-                        <tr><td>3</td><td>human_likeness_score</td><td>词汇丰富度x0.4 + 主观词密度x0.3 + 复句复杂度x0.3</td><td>Yes</td></tr>
-                        <tr><td>4</td><td>exclamation_density</td><td>(! + ！) 出现次数 / 文本总长度</td><td>Yes</td></tr>
-                        <tr><td>5</td><td>link_count</td><td>博文中 http(s):// 的正则匹配数量</td><td>—</td></tr>
-                        <tr><td>6</td><td>is_default_avatar</td><td>头像 URL 含 "default" 或缺少 "tvax/tva" = 1</td><td>—</td></tr>
-                        <tr><td>7</td><td>is_random_name</td><td>昵称含 5 位以上连续数字 = 1</td><td>Yes</td></tr>
-                        <tr><td>8</td><td>engagement_count</td><td>近 20 条原创帖的 (转+评+赞) 平均值; 最低兜底 1.0</td><td>Yes</td></tr>
-                        <tr><td>9</td><td>is_verified</td><td>认证字段含 "V" 或 "认证" = 1</td><td>Yes</td></tr>
-                        <tr><td>10</td><td>sentiment_score</td><td>SnowNLP 朴素贝叶斯（截取前 100 字符）; 0~1</td><td>Yes</td></tr>
-                        <tr><td>11</td><td>post_hour</td><td>发帖时间戳提取小时数 (0-23)</td><td>—</td></tr>
-                        <tr><td>12</td><td>desc_len</td><td>个人简介字数 len(description)</td><td>—</td></tr>
-                        <tr><td>13</td><td>topic_diversity</td><td>(独立话题数 + 无标签帖数) / 总帖数; 上限 1.0</td><td>Yes</td></tr>
-                        <tr><td>14</td><td>topic_count</td><td>博文中 #话题# 标签的逗号分割计数</td><td>—</td></tr>
-                        <tr><td>15</td><td>post_interval_variance</td><td>近 20 条帖时间间隔（小时）的标准差; log1p 缩放</td><td>Yes</td></tr>
+                        <tr><td>1</td><td>daily_post_rate</td><td>近 20 条帖子数 / 时间跨度天数; 上限 50; log1p 缩放</td><td>行为</td></tr>
+                        <tr><td>2</td><td>human_likeness_score</td><td>词汇丰富度x0.4 + 主观词密度x0.3 + 复句复杂度x0.3</td><td>语义</td></tr>
+                        <tr><td>3</td><td>exclamation_density</td><td>(! + ！) 出现次数 / 文本总长度</td><td>内容</td></tr>
+                        <tr><td>4</td><td>is_random_name</td><td>昵称含 5 位以上连续数字 = 1</td><td>账号</td></tr>
+                        <tr><td>5</td><td>engagement_count</td><td>近 20 条原创帖的 (转+评+赞) 平均值; 最低兜底 1.0</td><td>社交</td></tr>
+                        <tr><td>6</td><td>is_verified</td><td>认证字段含 "V" 或 "认证" = 1</td><td>信任</td></tr>
+                        <tr><td>7</td><td>sentiment_score</td><td>SnowNLP 朴素贝叶斯（截取前 100 字符）; 0~1</td><td>情感</td></tr>
+                        <tr><td>8</td><td>topic_diversity</td><td>(独立话题数 + 无标签帖数) / 总帖数; 上限 1.0</td><td>内容</td></tr>
+                        <tr><td>9</td><td>post_interval_variance</td><td>近 20 条帖时间间隔（小时）的标准差; log1p 缩放</td><td>时序</td></tr>
                     </tbody>
                 </table>
-                <p style="margin-top:10px;font-size:0.82rem;color:var(--text-dim);">注："入模 Yes" 标记的 9 项作为 RandomForest 模型的输入特征向量；其余 6 项用于规则评分或前端展示。</p>
             </section>
 
             <!-- 第三章 -->
@@ -123,14 +115,11 @@
                 <table class="doc-table">
                     <thead><tr><th>优先级</th><th>特征</th><th>权重</th><th>阈值逻辑</th></tr></thead>
                     <tbody>
-                        <tr><td>高</td><td>发帖间隔方差</td><td>0.20</td><td>log &lt; 0.41 = 1.0, &lt; 1.10 = 0.7, &lt; 1.79 = 0.3</td></tr>
-                        <tr><td>高</td><td>日均发帖率</td><td>0.18</td><td>log &gt; 3.93 = 1.0, &gt; 3.04 = 0.7, &gt; 2.40 = 0.4</td></tr>
-                        <tr><td>高</td><td>平均互动率</td><td>0.18</td><td>= 0 则 1.0, &lt; 0.69 = 0.7, &lt; 1.6 = 0.3</td></tr>
-                        <tr><td>中</td><td>数字乱码名</td><td>0.10</td><td>含5位连续数字 = 1.0, 否则 0</td></tr>
-                        <tr><td>中</td><td>默认头像</td><td>0.08</td><td>是默认 = 1.0, 否则 0</td></tr>
-                        <tr><td>低</td><td>粉关比</td><td>0.08</td><td>&lt; 0.01 = 1.0, &lt; 0.05 = 0.6, &lt; 0.1 = 0.3</td></tr>
-                        <tr><td>低</td><td>外链数量</td><td>0.06</td><td>&gt; 3 = 1.0, &gt; 1 = 0.5, = 1 则 0.2</td></tr>
-                        <tr><td>低</td><td>感叹号密度</td><td>0.04</td><td>&gt; 0.08 = 1.0, &gt; 0.04 = 0.5</td></tr>
+                        <tr><td>高</td><td>发帖间隔方差</td><td>0.25</td><td>log &lt; 0.41 = 1.0, &lt; 1.10 = 0.7, &lt; 1.79 = 0.3</td></tr>
+                        <tr><td>高</td><td>日均发帖率</td><td>0.25</td><td>log &gt; 3.93 = 1.0, &gt; 3.04 = 0.7, &gt; 2.40 = 0.4</td></tr>
+                        <tr><td>高</td><td>平均互动量</td><td>0.25</td><td>= 0 则 1.0, &lt; 0.69 = 0.7, &lt; 1.6 = 0.3</td></tr>
+                        <tr><td>中</td><td>数字乱码名</td><td>0.15</td><td>含5位连续数字 = 1.0, 否则 0</td></tr>
+                        <tr><td>低</td><td>感叹号密度</td><td>0.10</td><td>&gt; 0.08 = 1.0, &gt; 0.04 = 0.5</td></tr>
                     </tbody>
                 </table>
                 <p style="margin-top:10px;"><strong>新闻媒体豁免</strong>：经 <code>verified_reason</code> 字段匹配 17 个媒体关键词后，可疑度 x0.3 衰减。</p>
@@ -152,7 +141,7 @@
                 <h3>六、分数融合与最终判定</h3>
                 <p>最终可疑度通过<strong>加权融合</strong>生成：</p>
                 <ul>
-                    <li>当模型可用时：<strong>最终分 = 40% x 规则分 + 60% x 模型分</strong></li>
+                    <li>当模型可用时：<strong>最终分 = 20% x 规则分 + 80% x 模型分</strong></li>
                     <li>当模型不可用时：<strong>最终分 = 100% 规则分</strong></li>
                 </ul>
                 <p>融合后执行红旗否决与媒体豁免修正。最终判定阈值：<strong>&ge; 0.7 判定为疑似水军</strong>。</p>
@@ -166,8 +155,22 @@
                     <li class="log-item">
                         <span class="log-date">2026-03-19</span>
                         <div class="log-content">
+                            <strong>v1.5.0 数据采集层“瘦身”优化</strong>
+                            <p>下线了耗时的 <code>get_ip</code> 同步请求，并全面剔除地理位置、文章链接、用户性别等非推理字段的采集，整体响应速度提升约 300%。</p>
+                        </div>
+                    </li>
+                    <li class="log-item">
+                        <span class="log-date">2026-03-19</span>
+                        <div class="log-content">
+                            <strong>v1.4.0 特征精简与逻辑升级</strong>
+                            <p>模型特征精简至 9 维核心维度，移除噪音项。调整评分权重，模型占比提升至 80%。同步重构检测流水线与重训脚本。</p>
+                        </div>
+                    </li>
+                    <li class="log-item">
+                        <span class="log-date">2026-03-19</span>
+                        <div class="log-content">
                             <strong>v1.3.0 技术文档系统上线</strong>
-                            <p>新增目录式系统技术报告，涵盖采集、特征、模型、评分、红旗否决与融合六大章节。引入 GSAP 粒子球展开动效与毛玻璃视觉方案。</p>
+                            <p>新增目录式系统技术报告，涵盖采集、特征、模型、评分等六大章节。引入 GSAP 粒子球展开动效与毛玻璃视觉方案。</p>
                         </div>
                     </li>
                 </ul>

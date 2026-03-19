@@ -318,64 +318,6 @@ class SearchSpider(scrapy.Spider):
                                      callback=self.parse_page,
                                      meta={'keyword': keyword})
 
-    def get_ip(self, bid):
-        url = f"https://weibo.com/ajax/statuses/show?id={bid}&locale=zh-CN"
-        response = requests.get(url, headers=self.settings.get('DEFAULT_REQUEST_HEADERS'))
-        if response.status_code != 200:
-            return ""
-        try:
-            data = response.json()
-        except requests.exceptions.JSONDecodeError:
-            return ""
-        ip_str = data.get("region_name", "")
-        if ip_str:
-            ip_str = ip_str.split()[-1]
-        return ip_str
-
-    def get_article_url(self, selector):
-        """获取微博头条文章url"""
-        article_url = ''
-        text = selector.xpath('string(.)').extract_first().replace(
-            '\u200b', '').replace('\ue627', '').replace('\n',
-                                                        '').replace(' ', '')
-        if text.startswith('发布了头条文章'):
-            urls = selector.xpath('.//a')
-            for url in urls:
-                if url.xpath(
-                        'i[@class="wbicon"]/text()').extract_first() == 'O':
-                    if url.xpath('@href').extract_first() and url.xpath(
-                            '@href').extract_first().startswith('http://t.cn'):
-                        article_url = url.xpath('@href').extract_first()
-                    break
-        return article_url
-
-    def get_location(self, selector):
-        """获取微博发布位置"""
-        a_list = selector.xpath('.//a')
-        location = ''
-        for a in a_list:
-            if a.xpath('./i[@class="wbicon"]') and a.xpath(
-                    './i[@class="wbicon"]/text()').extract_first() == '2':
-                location = a.xpath('string(.)').extract_first()[1:]
-                break
-        return location
-
-    def get_at_users(self, selector):
-        """获取微博中@的用户昵称"""
-        a_list = selector.xpath('.//a')
-        at_users = ''
-        at_list = []
-        for a in a_list:
-            if len(unquote(a.xpath('@href').extract_first())) > 14 and len(
-                    a.xpath('string(.)').extract_first()) > 1:
-                if unquote(a.xpath('@href').extract_first())[14:] == a.xpath(
-                        'string(.)').extract_first()[1:]:
-                    at_user = a.xpath('string(.)').extract_first()[1:]
-                    if at_user not in at_list:
-                        at_list.append(at_user)
-        if at_list:
-            at_users = ','.join(at_list)
-        return at_users
 
     def get_topics(self, selector):
         """获取参与的微博话题"""
@@ -471,16 +413,9 @@ class SearchSpider(scrapy.Spider):
                         is_long_weibo = True
                 weibo['text'] = txt_sel.xpath(
                     'string(.)').extract_first().replace('\u200b', '').replace(
-                    '\ue627', '')
-                weibo['article_url'] = self.get_article_url(txt_sel)
-                weibo['location'] = self.get_location(txt_sel)
-                if weibo['location']:
-                    weibo['text'] = weibo['text'].replace(
-                        '2' + weibo['location'], '')
-                weibo['text'] = weibo['text'][2:].replace(' ', '')
+                    '\ue627', '').replace(' ', '')
                 if is_long_weibo:
                     weibo['text'] = weibo['text'][:-4]
-                weibo['at_users'] = self.get_at_users(txt_sel)
                 weibo['topics'] = self.get_topics(txt_sel)
                 reposts_count = sel.xpath(
                     './/a[@action-type="feed_list_forward"]/text()').extract()
@@ -513,29 +448,6 @@ class SearchSpider(scrapy.Spider):
                 source = sel.xpath('.//div[@class="from"]/a[2]/text()'
                                    ).extract_first()
                 weibo['source'] = source if source else ''
-                pics = ''
-                is_exist_pic = sel.xpath(
-                    './/div[@class="media media-piclist"]')
-                if is_exist_pic:
-                    pics = is_exist_pic[0].xpath('ul[1]/li/img/@src').extract()
-                    pics = [pic[8:] for pic in pics]
-                    pics = [
-                        re.sub(r'/.*?/', '/large/', pic, 1) for pic in pics
-                    ]
-                    pics = ['https://' + pic for pic in pics]
-                video_url = ''
-                is_exist_video = sel.xpath(
-                    './/div[@class="thumbnail"]//video-player').extract_first()
-                if is_exist_video:
-                    video_url = re.findall(r'src:\'(.*?)\'', is_exist_video)[0]
-                    video_url = video_url.replace('&amp;', '&')
-                    video_url = 'http:' + video_url
-                if not retweet_sel:
-                    weibo['pics'] = pics
-                    weibo['video_url'] = video_url
-                else:
-                    weibo['pics'] = ''
-                    weibo['video_url'] = ''
                 weibo['retweet_id'] = ''
                 if retweet_sel and retweet_sel[0].xpath(
                         './/div[@node-type="feed_list_forwardContent"]/a[1]'):
@@ -558,17 +470,9 @@ class SearchSpider(scrapy.Spider):
                     retweet['text'] = retweet_txt_sel.xpath(
                         'string(.)').extract_first().replace('\u200b',
                                                              '').replace(
-                        '\ue627', '')
-                    retweet['article_url'] = self.get_article_url(
-                        retweet_txt_sel)
-                    retweet['location'] = self.get_location(retweet_txt_sel)
-                    if retweet['location']:
-                        retweet['text'] = retweet['text'].replace(
-                            '2' + retweet['location'], '')
-                    retweet['text'] = retweet['text'][2:].replace(' ', '')
+                        '\ue627', '').replace(' ', '')
                     if is_long_retweet:
                         retweet['text'] = retweet['text'][:-4]
-                    retweet['at_users'] = self.get_at_users(retweet_txt_sel)
                     retweet['topics'] = self.get_topics(retweet_txt_sel)
                     reposts_count = retweet_sel[0].xpath(
                         './/ul[@class="act s-fr"]/li[1]/a[1]/text()'
@@ -595,8 +499,6 @@ class SearchSpider(scrapy.Spider):
                     source = retweet_sel[0].xpath(
                         './/p[@class="from"]/a[2]/text()').extract_first()
                     retweet['source'] = source if source else ''
-                    retweet['pics'] = pics
-                    retweet['video_url'] = video_url
                     retweet['retweet_id'] = ''
 
                     # 增加结果计数（转发微博也计入总数）
@@ -609,7 +511,7 @@ class SearchSpider(scrapy.Spider):
                         return
 
                     weibo['retweet_id'] = retweet['id']
-                weibo["ip"] = self.get_ip(bid)
+
 
                 avator = sel.xpath(
                     "div[@class='card']/div[@class='card-feed']/div[@class='avator']"
