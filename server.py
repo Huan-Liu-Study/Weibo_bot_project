@@ -13,9 +13,12 @@ app = Flask(__name__)
 # ===================== Helpers =====================
 
 def clean_for_json(df):
-    """Convert dataframe to JSON-safe list of dicts, replacing all NaN/NaT with None"""
+    """Convert dataframe or list to JSON-safe list of dicts, replacing all NaN/NaT with None"""
     import math
-    records = df.to_dict('records')
+    if hasattr(df, 'to_dict'):
+        records = df.to_dict('records')
+    else:
+        records = df
     for record in records:
         for k, v in list(record.items()):
             if v is None:
@@ -103,7 +106,11 @@ def build_topic_response(df):
     total_scanned = len(df)
     bot_count = int(df['is_bot_pred'].sum()) if 'is_bot_pred' in df.columns else 0
     bot_ratio = round(bot_count / total_scanned * 100, 1) if total_scanned > 0 else 0
-    overall_sentiment = float(df['sentiment_score'].mean()) if 'sentiment_score' in df.columns else 0.5
+    if total_scanned == 0:
+        overall_sentiment = 0.5
+    else:
+        mean_val = df['sentiment_score'].mean() if 'sentiment_score' in df.columns else 0.5
+        overall_sentiment = float(mean_val) if pd.notna(mean_val) else 0.5
 
     radar_metrics = {}
     if 'is_bot_pred' in df.columns:
@@ -119,6 +126,25 @@ def build_topic_response(df):
         radar_metrics['humans'] = {f: float(humans_df[f].mean()) if not humans_df.empty and f in humans_df.columns else 0 for f in radar_features}
         radar_metrics['bots'] = {f: float(bots_df[f].mean()) if not bots_df.empty and f in bots_df.columns else 0 for f in radar_features}
 
+    suspects_list = []
+    if 'is_bot_pred' in df.columns:
+        suspects_df = df[df['is_bot_pred'] == 1].sort_values(by='bot_probability', ascending=False).head(10)
+        feature_cols = [
+            'daily_post_rate', 'human_likeness_score',
+            'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
+            'sentiment_score', 'topic_diversity', 'post_interval_variance'
+        ]
+        for _, row in suspects_df.iterrows():
+            suspect_dict = row.to_dict()
+            features_dict = {c: float(row.get(c, 0)) for c in feature_cols}
+            score = float(row.get('bot_probability', 0))
+            user_info = {
+                'verified_reason': str(row.get('verified_reason', '')),
+                'description': str(row.get('description', ''))
+            }
+            suspect_dict['reasons'] = generate_reasons(features_dict, score, user_info)
+            suspects_list.append(suspect_dict)
+
     return {
         "status": "success",
         "summary": {
@@ -128,12 +154,9 @@ def build_topic_response(df):
             "overall_sentiment": overall_sentiment
         },
         "radar_metrics": radar_metrics,
-        "suspects": clean_for_json(
-            df[df['is_bot_pred'] == 1].sort_values(by='bot_probability', ascending=False).head(10)
-        ) if 'is_bot_pred' in df.columns else [],
+        "suspects": clean_for_json(suspects_list),
         "feed": clean_for_json(df.head(20))
     }
-
 
 def analyze_single_user(uid):
     """分析单个用户的可疑度"""

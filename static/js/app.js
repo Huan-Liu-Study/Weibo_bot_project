@@ -133,6 +133,9 @@
     }
     animate(0);
 
+    // Make group accessible for external animations
+    window._particleGroup = group;
+    
     // Resize
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -179,7 +182,45 @@ if (topicBtn) {
         topicBtn.disabled = true;
         topicBtn.querySelector('.btn-text').style.display = 'none';
         topicBtn.querySelector('.btn-loading').style.display = 'flex';
-        if (window._setParticleSpeed) window._setParticleSpeed(0.006);
+        
+        // --- Added: Progress UI ---
+        const progressArea = document.getElementById('topicProgress');
+        const progressFill = document.getElementById('progressFill');
+        const progressStatus = document.getElementById('progressStatus');
+        const progressTime = document.getElementById('progressTime');
+        const resultsArea = document.getElementById('topicResults');
+        
+        resultsArea.style.display = 'none';
+        progressArea.style.display = 'block';
+        progressFill.style.width = '0%';
+        progressStatus.textContent = '初始化组件中...';
+        
+        // Estimated time: ~1.2s per item + 5s overhead
+        let timeLeft = Math.ceil(depth * 1.2 + 5);
+        progressTime.textContent = `预计剩余: ${timeLeft}秒`;
+        
+        if (window._setParticleSpeed) window._setParticleSpeed(0.008);
+
+        // Progress Timer Logic
+        let progressPercent = 0;
+        const timer = setInterval(() => {
+            if (timeLeft > 0) {
+                timeLeft--;
+                progressTime.textContent = `预计剩余: ${timeLeft}秒`;
+                
+                // Fake progress bar increment (nonlinear for realism)
+                if (progressPercent < 90) {
+                    progressPercent += (90 - progressPercent) * 0.05;
+                    progressFill.style.width = progressPercent + '%';
+                }
+                
+                // Status text updates
+                if (timeLeft % 5 === 0) {
+                    const statuses = ['正在下发采集任务...', '绕过微博反爬验证...', '模型正在实时特征提取...', '计算社交网络相似度...', '解析账号行为特征...'];
+                    progressStatus.textContent = statuses[Math.floor(Math.random() * statuses.length)];
+                }
+            }
+        }, 1000);
 
         try {
             const res = await fetch('/api/detect', {
@@ -189,12 +230,19 @@ if (topicBtn) {
             });
             const data = await res.json();
 
+            clearInterval(timer);
+            progressFill.style.width = '100%';
+            progressStatus.textContent = '分析完成！';
+            setTimeout(() => { progressArea.style.display = 'none'; }, 500);
+
             if (data.error) {
                 showError('topicResults', data.error);
             } else {
                 renderTopicResults(data);
             }
         } catch (e) {
+            clearInterval(timer);
+            progressArea.style.display = 'none';
             showError('topicResults', '请求失败：' + e.message);
         } finally {
             topicBtn.disabled = false;
@@ -300,19 +348,52 @@ function renderSuspects(suspects) {
         const level = score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';
         const text = (s['微博正文'] || s.text || '').substring(0, 80);
         const name = s['用户昵称'] || s.screen_name || 'UID:' + s.user_id;
+        const reasonsHtml = s.reasons && s.reasons.length > 0
+            ? s.reasons.map(r => {
+                const cls = r.level === 'high' ? 'flag-high' : r.level === 'medium' ? 'flag-medium' : 'flag-low';
+                return `<li class="${cls}">${escapeHtml(r.text)}</li>`;
+            }).join('')
+            : '<li class="flag-low">暂无详细判定理由，仅满足评分阈值</li>';
+
         return `
             <div class="suspect-item">
-                <div class="suspect-score ${level}">${score}%</div>
-                <div class="suspect-info">
-                    <div class="suspect-name">${escapeHtml(name)}</div>
-                    <div class="suspect-text">"${escapeHtml(text)}"</div>
-                    <div class="suspect-meta">
-                        <span>粉丝 ${s.followers_count || 0}</span>
-                        <span>发帖 ${s.statuses_count || 0}</span>
+                <div class="suspect-main" onclick="toggleSuspect(this)">
+                    <div class="suspect-score ${level}">${score}%</div>
+                    <div class="suspect-info">
+                        <div class="suspect-name">${escapeHtml(name)}</div>
+                        <div class="suspect-text">"${escapeHtml(text)}"</div>
+                        <div class="suspect-meta">
+                            <span>粉丝 ${s.followers_count || 0}</span>
+                            <span>发帖 ${s.statuses_count || 0}</span>
+                        </div>
                     </div>
+                    <svg class="suspect-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+                <div class="suspect-reasons" style="display:none">
+                    <ul class="reasons-list">
+                        ${reasonsHtml}
+                    </ul>
                 </div>
             </div>`;
     }).join('');
+}
+
+window.toggleSuspect = function(element) {
+    const parent = element.closest('.suspect-item');
+    const reasonsDiv = parent.querySelector('.suspect-reasons');
+    const arrow = parent.querySelector('.suspect-arrow');
+    
+    if (reasonsDiv.style.display === 'none') {
+        reasonsDiv.style.display = 'block';
+        arrow.style.transform = 'rotate(180deg)';
+        parent.style.borderColor = 'var(--border)';
+        parent.style.boxShadow = 'var(--shadow)';
+    } else {
+        reasonsDiv.style.display = 'none';
+        arrow.style.transform = 'rotate(0deg)';
+        parent.style.borderColor = 'transparent';
+        parent.style.boxShadow = 'none';
+    }
 }
 
 
@@ -440,6 +521,87 @@ function renderReasons(reasons) {
     }).join('');
 }
 
+
+// ==================== SYSTEM INFO OVERLAY (Sphere Expansion) ====================
+
+(function initInfoOverlay() {
+    const infoTrigger = document.getElementById('infoTrigger');
+    const closeInfo = document.getElementById('closeInfo');
+    const infoOverlay = document.getElementById('infoOverlay');
+    const overlayBackdrop = infoOverlay.querySelector('.overlay-backdrop');
+    
+    if (!infoTrigger || !infoOverlay) return;
+
+    let isOpen = false;
+
+    const toggleInfo = (show) => {
+        if (show === isOpen) return;
+        isOpen = show;
+
+        if (show) {
+            infoOverlay.style.display = 'flex';
+            
+            // GSAP Animation for the Sphere - FIRST
+            if (window._particleGroup && window.gsap) {
+                window.gsap.to(window._particleGroup.scale, {
+                    x: 3.5, y: 3.5, z: 3.5,
+                    duration: 1.2,
+                    ease: "power2.inOut",
+                    onComplete: () => {
+                        // Show modal ONLY after sphere expanded
+                        if (isOpen) infoOverlay.classList.add('active');
+                    }
+                });
+                window.gsap.to(window._particleGroup.position, {
+                    z: -4,
+                    duration: 1.2,
+                    ease: "power2.inOut"
+                });
+                if (window._setParticleSpeed) window._setParticleSpeed(0.004);
+            } else {
+                // Fallback if GSAP/Sphere missing
+                infoOverlay.classList.add('active');
+            }
+        } else {
+            // Hide modal content first
+            infoOverlay.classList.remove('active');
+            
+            // Wait for modal to fade out before shrinking sphere
+            setTimeout(() => {
+                if (isOpen) return; // Guard if reopened
+                
+                // GSAP Reset for the Sphere
+                if (window._particleGroup && window.gsap) {
+                    window.gsap.to(window._particleGroup.scale, {
+                        x: 1, y: 1, z: 1,
+                        duration: 1,
+                        ease: "power2.out"
+                    });
+                    window.gsap.to(window._particleGroup.position, {
+                        z: 0,
+                        duration: 1,
+                        ease: "power2.out",
+                        onComplete: () => {
+                            if (!isOpen) infoOverlay.style.display = 'none';
+                        }
+                    });
+                    if (window._setParticleSpeed) window._setParticleSpeed(0.0008);
+                } else {
+                    infoOverlay.style.display = 'none';
+                }
+            }, 400); // Wait for CSS transition of .info-overlay (.4s in CSS)
+        }
+    };
+
+    infoTrigger.addEventListener('click', () => toggleInfo(true));
+    closeInfo.addEventListener('click', () => toggleInfo(false));
+    overlayBackdrop.addEventListener('click', () => toggleInfo(false));
+    
+    // ESC key to close
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isOpen) toggleInfo(false);
+    });
+})();
 
 // ==================== UTILS ====================
 

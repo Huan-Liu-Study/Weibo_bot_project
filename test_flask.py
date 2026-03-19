@@ -7,7 +7,7 @@ client = app.test_client()
 
 try:
     print("Sending POST request to /api/detect")
-    response = client.post('/api/detect', json={'topic': 'test', 'limit': 5})
+    response = client.post('/api/detect', json={'topic': '谢娜晒倒立照', 'limit': 5})
     print("Status code:", response.status_code)
     print("Response data:", response.data.decode('utf-8'))
 except Exception as e:

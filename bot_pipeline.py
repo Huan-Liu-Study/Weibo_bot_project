@@ -138,6 +138,13 @@ def run_pipeline(topic, limit=20):
     # 稍微增加延迟或者保持1，用以避开418屏蔽
     content = re.sub(r"DOWNLOAD_DELAY = \d+", "DOWNLOAD_DELAY = 1", content)
 
+    # 动态设置日期范围：最近7天到今天
+    from datetime import datetime, timedelta
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+    content = re.sub(r"START_DATE = '.*?'", f"START_DATE = '{start_date}'", content)
+    content = re.sub(r"END_DATE = '.*?'", f"END_DATE = '{end_date}'", content)
+
     with open(settings_path, 'w', encoding='utf-8') as f:
         f.write(content)
 
@@ -147,12 +154,24 @@ def run_pipeline(topic, limit=20):
         os.remove(csv_path)
 
     # 2. 从 Python 子进程内部唤醒终端自动执行 Scrapy
-    # 通过当前运行环境的 sys.executable 绝对路径来调用库，避免 Windows 找不到命令
-    subprocess.run([sys.executable, "-m", "scrapy", "crawl", "search"], cwd="weibo-search", check=True)
+    try:
+        subprocess.run(
+            ["python", "-m", "scrapy", "crawl", "search"], 
+            cwd="weibo-search", 
+            check=True, 
+            capture_output=True, 
+            text=True,
+            encoding='gb18030',
+            errors='ignore'
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Scrapy 爬虫子进程执行失败(返回码 {e.returncode})\n\n[标准输出]\n{e.stdout}\n\n[错误输出]\n{e.stderr}")
 
     # 3. 读取刚落地热乎的 CSV，然后顺手并行提取那些账户的主页信息
     if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"爬虫未能产出数据文件：{csv_path}。可能网络超时。")
+        # 爬虫未报错，但未生成文件，说明搜索结果为 0 条
+        print(f"[INFO] 话题 '{topic}' 未获取到任何微博数据。")
+        return pd.DataFrame()
 
     df = pd.read_csv(csv_path)
     if 'id' in df.columns:
