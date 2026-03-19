@@ -403,22 +403,25 @@ def run_pipeline(topic, limit=20):
         total_weight = 0.0
 
         # ★★★ 发帖间隔标准差 (权重 0.20) — 机器发帖极规律，方差趋近 0
+        # 注意: 现在是 log1p 缩放后的值，log1p(0.5)≈0.41, log1p(2)≈1.10, log1p(5)≈1.79
         w = 0.20
         piv = float(row.get('post_interval_variance', 0))
-        if piv < 0.5:       sub = 1.0   # 极其规律 → 满分嫌疑
-        elif piv < 2.0:     sub = 0.7
-        elif piv < 5.0:     sub = 0.3
-        else:               sub = 0.0   # 发帖间隔很随机 → 更像人
+        if piv < 0.41:      sub = 1.0   # log1p(0.5)≈0.41 → 极其规律
+        elif piv < 1.10:    sub = 0.7   # log1p(2)≈1.10
+        elif piv < 1.79:    sub = 0.3   # log1p(5)≈1.79
+        else:               sub = 0.0
         score += w * sub
         total_weight += w
 
+
         # ★★★ 日均发帖率 (权重 0.18)
+        # log1p(50)≈3.93, log1p(20)≈3.04, log1p(10)≈2.40, log1p(5)≈1.79
         w = 0.18
         dpr = float(row.get('daily_post_rate', 0))
-        if dpr > 50:        sub = 1.0
-        elif dpr > 20:      sub = 0.7
-        elif dpr > 10:      sub = 0.4
-        elif dpr > 5:       sub = 0.2
+        if dpr > 3.93:      sub = 1.0   # log1p(50)
+        elif dpr > 3.04:    sub = 0.7   # log1p(20)
+        elif dpr > 2.40:    sub = 0.4   # log1p(10)
+        elif dpr > 1.79:    sub = 0.15  # log1p(5)
         else:               sub = 0.0
         score += w * sub
         total_weight += w
@@ -531,20 +534,21 @@ def run_pipeline(topic, limit=20):
         score = row['suspicion_score']
         flags = []
 
-        # 🔴 红旗1: 发帖间隔方差 <= 1 (且有数据，非0占位) → 极度规律，像定时任务
-        piv = row.get('post_interval_variance', -1)
-        if 0 < piv <= 1:
-            flags.append(f'发帖间隔方差={piv:.4f}<=1')
+        # 🔴 红旗1: 发帖间隔方差 (log1p 缩放后) → log1p(1)≈0.69
+        piv = float(row.get('post_interval_variance', -1))
+        if 0 < piv <= 0.69:
+            flags.append(f'发帖间隔方差(log)={piv:.4f}≤log1p(1)')
 
-        # 🔴 红旗2: 日均发帖 >= 50 → 不可能人工操作
-        dpr = row.get('daily_post_rate', 0)
-        if dpr >= 50:
-            flags.append(f'日均发帖={dpr:.1f}>=50')
+        # 🔴 红旗2: 日均发帖 (log1p 缩放后) → log1p(50)≈3.93
+        dpr = float(row.get('daily_post_rate', 0))
+        if dpr >= 3.93:
+            flags.append(f'日均发帖(log)={dpr:.2f}≥log1p(50)')
 
-        # 🔴 红旗3: 话题多样性 <= 10% (且有数据，非0.5默认值) → 长期只刷单一话题
-        td = row.get('topic_diversity', 0.5)
+        # 🔴 红旗3: 话题多样性 <= 10%
+        td = float(row.get('topic_diversity', 0.5))
         if td <= 0.1 and td != 0.5:
-            flags.append(f'话题多样性={td:.2f}<=10%')
+            flags.append(f'话题多样性={td:.2f}≤10%')
+
 
         if flags:
             new_score = max(score, RED_FLAG_MIN_SCORE)

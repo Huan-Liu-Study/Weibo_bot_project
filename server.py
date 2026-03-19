@@ -33,11 +33,18 @@ def clean_for_json(df):
                 record[k] = bool(v)
             elif hasattr(v, 'isoformat'):
                 record[k] = str(v)
-            elif isinstance(v, list):
-                record[k] = v  # keep lists as-is
-            elif pd.isna(v):
-                record[k] = None
+            elif isinstance(v, (list, dict)):
+                record[k] = v  # keep lists/dicts as-is, skip pd.isna check
+            elif isinstance(v, str):
+                continue  # strings are fine as-is
+            else:
+                try:
+                    if pd.isna(v):
+                        record[k] = None
+                except (ValueError, TypeError):
+                    pass  # if pd.isna fails, keep original value
     return records
+
 
 
 def _load_cookie():
@@ -68,8 +75,8 @@ def detect_bots():
         df = run_pipeline(topic, limit)
         return jsonify(build_topic_response(df))
     except Exception as e:
-        traceback.print_exc()
-        return jsonify({"error": f"流水线执行失败: {str(e)}"}), 500
+        tb = traceback.format_exc()
+        return jsonify({"error": f"流水线执行失败: {str(e)}\n\nTRACEBACK:\n{tb}"}), 500
 
 
 @app.route('/api/check_user', methods=['POST'])
