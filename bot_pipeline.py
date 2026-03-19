@@ -13,6 +13,7 @@ import aiohttp
 # SnowNLP is lazy-loaded inside get_sentiment() to avoid MemoryError
 # when Flask debug reloader double-imports this module
 from datetime import datetime
+import topic_db
 
 
 def _load_cookie_from_settings():
@@ -122,14 +123,23 @@ async def fetch_all_users_info(uids, headers):
         return await asyncio.gather(*tasks)
 
 
-def run_pipeline(topic, limit=20):
+def run_pipeline(topic, limit=20, continue_mode=False):
     # 1. 自动覆写 Scrapy 爬虫的内部配置文件
     settings_path = 'weibo-search/weibo/settings.py'
     with open(settings_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
+    # v1.7.0: 续爬时 Scrapy 的 LIMIT 必须等于已爬取量 + 本次目标新增量
+    existing_meta = topic_db.get_topic_meta(topic)
+
+    if continue_mode:
+        fetch_limit = existing_meta['total_fetched'] + limit
+    else:
+        topic_db.clear_topic(topic)
+        fetch_limit = limit
+
     content = re.sub(r"KEYWORD_LIST = \[.*?\]", f"KEYWORD_LIST = ['{topic}']", content)
-    content = re.sub(r"LIMIT_RESULT = \d+", f"LIMIT_RESULT = {limit}", content)
+    content = re.sub(r"LIMIT_RESULT = \d+", f"LIMIT_RESULT = {fetch_limit}", content)
     # 稍微增加延迟或者保持1，用以避开418屏蔽
     content = re.sub(r"DOWNLOAD_DELAY = \d+", "DOWNLOAD_DELAY = 1", content)
 
@@ -166,11 +176,26 @@ def run_pipeline(topic, limit=20):
     if not os.path.exists(csv_path):
         # 爬虫未报错，但未生成文件，说明搜索结果为 0 条
         print(f"[INFO] 话题 '{topic}' 未获取到任何微博数据。")
-        return pd.DataFrame()
+        return pd.DataFrame(), {'new_fetched': 0, 'total_fetched': existing_meta['total_fetched'], 'has_more': False}
 
     df = pd.read_csv(csv_path)
     if 'id' in df.columns:
         df = df.drop_duplicates(subset=['id']).copy()
+
+    # --- v1.7.0: 去重 — 与 SQLite 已有记录比对，仅保留新增 ---
+    existing_ids = topic_db.get_existing_ids(topic)
+    if existing_ids and 'id' in df.columns:
+        df['id'] = df['id'].astype(str)
+        new_mask = ~df['id'].isin(existing_ids)
+        new_count_raw = new_mask.sum()
+        df = df[new_mask].copy()
+        print(f"[INFO] 去重后新增 {len(df)} 条 (原始 {new_count_raw} 条新, 已有 {len(existing_ids)} 条)")
+
+    if df.empty:
+        print(f"[INFO] 话题 '{topic}' 本轮无新增数据，返回历史聚合结果。")
+        all_df = topic_db.load_all_posts(topic)
+        meta = topic_db.get_topic_meta(topic)
+        return all_df, {'new_fetched': 0, 'total_fetched': meta['total_fetched'], 'has_more': True}
 
     unique_users = df['user_id'].unique()
 
@@ -359,162 +384,53 @@ def run_pipeline(topic, limit=20):
         df['用户昵称'] = df[name_col]
 
     # ============================================================
-    # 可疑度评分系统 (Suspicion Score System)
-    # 基于用户实际标注体感校准的加权规则评分 + 模型概率融合
+    # 可疑度评分系统 (v1.8.0 统一评分体系 — 调用 scoring.py)
     # ============================================================
+    from scoring import FEATURE_COLS, calc_rule_score, get_model_proba, apply_red_flags, is_news_media
 
-    # --- 步骤 1: 基于规则的加权可疑度计算 ---
-    def _is_news_media(row):
-        """判断是否为新闻媒体认证账号（仅这类认证有豁免力）"""
-        reason = str(row.get('verified_reason', ''))
-        media_keywords = ['新闻', '媒体', '报社', '电视台', '日报', '晚报',
-                          '广播', '通讯社', '新华', '央视', '人民', '网易',
-                          '澎湃', '环球', '观察者', '纵览', '头条']
-        return any(kw in reason for kw in media_keywords)
+    # --- 步骤 1: 规则评分 ---
+    df['rule_suspicion'] = df.apply(calc_rule_score, axis=1)
 
-    def calc_suspicion_score(row):
-        """
-        计算单行数据的可疑度评分 (0.0 ~ 1.0)
-        权重优先级来自用户实际标注体感:
-        发帖间隔方差 > 日均发帖率 > 互动率 > 数字名 > 默认头像 > 粉关比 > 外链 > 感叹号
-        """
-        score = 0.0
-        total_weight = 0.0
-
-        # ★★★ 发帖间隔标准差 (权重 0.25) — 机器发帖极规律，方差趋近 0
-        w = 0.25
-        piv = float(row.get('post_interval_variance', 0))
-        if piv < 0.41:      sub = 1.0   # log1p(0.5)≈0.41 → 极其规律
-        elif piv < 1.10:    sub = 0.7   # log1p(2)≈1.10
-        elif piv < 1.79:    sub = 0.3   # log1p(5)≈1.79
-        else:               sub = 0.0
-        score += w * sub
-        total_weight += w
-
-
-        # ★★★ 日均发帖率 (权重 0.25)
-        w = 0.25
-        dpr = float(row.get('daily_post_rate', 0))
-        if dpr > 3.93:      sub = 1.0   # log1p(50)
-        elif dpr > 3.04:    sub = 0.7   # log1p(20)
-        elif dpr > 2.40:    sub = 0.4   # log1p(10)
-        elif dpr > 1.79:    sub = 0.15  # log1p(5)
-        else:               sub = 0.0
-        score += w * sub
-        total_weight += w
-
-        # ★★★ 平均互动率 (权重 0.25) — 发了就跑的典型水军
-        w = 0.25
-        ec = float(row.get('engagement_count', 0))
-        if ec == 0:          sub = 1.0
-        elif ec < 0.69:      sub = 0.7  # log1p(1) = 0.693
-        elif ec < 1.6:       sub = 0.3  # log1p(4) = 1.609
-        else:                sub = 0.0
-        score += w * sub
-        total_weight += w
-
-        # ★★ 数字乱码名 (权重 0.15)
-        w = 0.15
-        sub = 1.0 if int(row.get('is_random_name', 0)) == 1 else 0.0
-        score += w * sub
-        total_weight += w
-
-        # ★ 感叹号密度 (权重 0.10)
-        w = 0.10
-        ed = float(row.get('exclamation_density', 0))
-        if ed > 0.08:        sub = 1.0
-        elif ed > 0.04:      sub = 0.5
-        else:                sub = 0.0
-        score += w * sub
-        total_weight += w
-
-        # 加权归一化
-        raw_score = score / total_weight if total_weight > 0 else 0.0
-
-        # 特殊: 新闻媒体认证豁免 (×0.3 衰减)
-        if _is_news_media(row):
-            raw_score *= 0.3
-
-        return round(min(max(raw_score, 0.0), 1.0), 4)
-
-    df['rule_suspicion'] = df.apply(calc_suspicion_score, axis=1)
-
-    # --- 步骤 2: 模型推断 (如果有训练好的模型) ---
-    feature_cols = [
-        'daily_post_rate', 'human_likeness_score',
-        'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
-        'sentiment_score', 'topic_diversity', 'post_interval_variance'
-    ]
-
-    for col in feature_cols:
+    # --- 步骤 2: 模型推断 ---
+    for col in FEATURE_COLS:
         if col not in df.columns:
             df[col] = 0
 
-    X = df[feature_cols].fillna(0)
+    X = df[FEATURE_COLS].fillna(0)
+    model_probs, model_available = get_model_proba(X)
+    df['model_confidence'] = model_probs
 
-    model_available = False
-    try:
-        model = joblib.load('weibo_bot_rf_model.pkl')
-        # 检查模型是回归器还是分类器
-        if hasattr(model, 'predict_proba'):
-            # 分类器 → 取正类概率
-            probs = model.predict_proba(X)
-            df['model_confidence'] = [p[1] if len(p) > 1 else p[0] for p in probs]
-        else:
-            # 回归器 → 直接输出
-            df['model_confidence'] = model.predict(X).clip(0, 1)
-        model_available = True
-    except Exception as e:
-        print(f"[INFO] 模型推断跳过: {e}")
-        df['model_confidence'] = 0.5  # 没模型时取中性值
-
-    # --- 步骤 3: 融合最终可疑度 ---
+    # --- 步骤 3: 融合最终可疑度 (80% 模型 + 20% 规则) ---
     if model_available:
-        # 基于用户要求：模型占 80%，规则占 20%
         df['suspicion_score'] = (0.2 * df['rule_suspicion'] + 0.8 * df['model_confidence']).round(4)
     else:
-        # 没有模型时 100% 使用规则评分
         df['suspicion_score'] = df['rule_suspicion']
 
-    # --- 步骤 3.5: 红旗否决机制 (Red Flag Override) ---
-    # 即使模型整体打分很低，只要关键特征触发极端阈值，强制提升可疑度
-    RED_FLAG_MIN_SCORE = 0.55  # 红旗触发后的最低可疑分
+    # --- 步骤 3.5: 红旗否决机制 ---
+    df['suspicion_score'] = df.apply(
+        lambda row: apply_red_flags(row['suspicion_score'], row), axis=1
+    )
 
-    def apply_red_flags(row):
-        score = row['suspicion_score']
-        flags = []
-
-        # 🔴 红旗1: 发帖间隔方差 (log1p 缩放后) → log1p(1)≈0.69
-        piv = float(row.get('post_interval_variance', -1))
-        if 0 < piv <= 0.69:
-            flags.append(f'发帖间隔方差(log)={piv:.4f}≤log1p(1)')
-
-        # 🔴 红旗2: 日均发帖 (log1p 缩放后) → log1p(50)≈3.93
-        dpr = float(row.get('daily_post_rate', 0))
-        if dpr >= 3.93:
-            flags.append(f'日均发帖(log)={dpr:.2f}≥log1p(50)')
-
-        # 🔴 红旗3: 话题多样性 <= 10%
-        td = float(row.get('topic_diversity', 0.5))
-        if td <= 0.1 and td != 0.5:
-            flags.append(f'话题多样性={td:.2f}≤10%')
-
-
-        if flags:
-            new_score = max(score, RED_FLAG_MIN_SCORE)
-            return new_score
-        return score
-
-    df['suspicion_score'] = df.apply(apply_red_flags, axis=1)
-
-    # 新闻媒体豁免已在 calc_suspicion_score() 内部处理 (×0.3 衰减)
-    # 当模型参与融合时，也需要确保模型分数不会覆盖掉豁免效果
+    # --- 新闻媒体豁免 ---
     if model_available:
-        news_mask = df.apply(_is_news_media, axis=1)
+        news_mask = df.apply(is_news_media, axis=1)
         df.loc[news_mask, 'suspicion_score'] = df.loc[news_mask, 'suspicion_score'].clip(upper=0.3)
 
-    # 向后兼容: 保留 is_bot_pred 和 bot_probability 供旧前端使用
+    # 向后兼容
     df['bot_probability'] = df['suspicion_score']
     df['is_bot_pred'] = (df['suspicion_score'] >= 0.7).astype(int)
 
-    return df
+    # --- v1.7.0: 保存新增数据到 SQLite，然后返回聚合结果 ---
+    new_fetched = len(df)
+    if 'id' in df.columns:
+        df['id'] = df['id'].astype(str)
+    topic_db.save_posts(topic, df)
+
+    all_df = topic_db.load_all_posts(topic)
+    meta = topic_db.get_topic_meta(topic)
+
+    return all_df, {
+        'new_fetched': new_fetched,
+        'total_fetched': meta['total_fetched'],
+        'has_more': True
+    }

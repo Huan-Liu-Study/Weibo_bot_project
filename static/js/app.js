@@ -195,8 +195,8 @@ if (topicBtn) {
         progressFill.style.width = '0%';
         progressStatus.textContent = '初始化组件中...';
         
-        // Estimated time: ~1.2s per item + 5s overhead
-        let timeLeft = Math.ceil(depth * 1.2 + 5);
+        // Estimated time: ~2.2s per item + 8s overhead
+        let timeLeft = Math.ceil(depth * 2.2 + 8);
         progressTime.textContent = `预计剩余: ${timeLeft}秒`;
         
         if (window._setParticleSpeed) window._setParticleSpeed(0.008);
@@ -226,8 +226,13 @@ if (topicBtn) {
             const res = await fetch('/api/detect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic, limit: depth })
+                body: JSON.stringify({ topic, limit: depth, continue: window._lastCrawlTopic === topic })
             });
+
+            // Remember the topic/depth for continuation
+            window._lastCrawlTopic = topic;
+            window._lastCrawlDepth = depth;
+
             const data = await res.json();
 
             clearInterval(timer);
@@ -238,7 +243,7 @@ if (topicBtn) {
             if (data.error) {
                 showError('topicResults', data.error);
             } else {
-                renderTopicResults(data);
+                renderTopicResults(data, data.crawl_info);
             }
         } catch (e) {
             clearInterval(timer);
@@ -251,6 +256,28 @@ if (topicBtn) {
             if (window._setParticleSpeed) window._setParticleSpeed(0.0008);
         }
     });
+
+    // --- v1.7.5: Continue Depth Slider ---
+    const continueSlider = document.getElementById('continueDepthSlider');
+    const continueVal = document.getElementById('continueDepthVal');
+    continueSlider.addEventListener('input', (e) => {
+        continueVal.textContent = e.target.value;
+    });
+
+    // --- v1.7.0: "继续深入采集" button ---
+    document.getElementById('continueBtn').addEventListener('click', () => {
+        const topic = window._lastCrawlTopic;
+        const depth = continueSlider.value || 20;
+        if (!topic) return;
+
+        // Sync main UI inputs so the main handler picks them up
+        document.getElementById('topicInput').value = topic;
+        document.getElementById('depthSlider').value = depth;
+        document.getElementById('depthVal').textContent = depth;
+
+        // Programmatically trigger the detection button
+        document.getElementById('topicBtn').click();
+    });
 }
 
 function showError(containerId, msg) {
@@ -259,9 +286,21 @@ function showError(containerId, msg) {
     container.innerHTML = `<div class="error-msg">⚠️ ${msg}</div>`;
 }
 
-function renderTopicResults(data) {
+function renderTopicResults(data, crawlInfo) {
     const container = document.getElementById('topicResults');
     container.style.display = 'block';
+
+    // --- v1.7.0: Update continuation banner ---
+    const banner = document.getElementById('crawlBanner');
+    const bannerText = document.getElementById('crawlBannerText');
+    if (crawlInfo) {
+        const newCount = crawlInfo.new_fetched || 0;
+        const totalCount = crawlInfo.total_fetched || 0;
+        bannerText.textContent = `本次新增 ${newCount} 条数据，该话题下已累计分析 ${totalCount} 条帖子`;
+        banner.style.display = 'flex';
+    } else {
+        banner.style.display = 'none';
+    }
 
     const s = data.summary;
     document.getElementById('stat-total').textContent = s.total_scanned;
@@ -370,6 +409,7 @@ function renderSuspects(suspects) {
                     <svg class="suspect-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
                 </div>
                 <div class="suspect-reasons" style="display:none">
+
                     <ul class="reasons-list">
                         ${reasonsHtml}
                     </ul>

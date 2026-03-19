@@ -66,17 +66,20 @@ def index():
 
 @app.route('/api/detect', methods=['POST'])
 def detect_bots():
-    """话题检测 API：输入话题关键词，返回水军检测结果"""
+    """话题检测 API：输入话题关键词，返回水军检测结果（支持断点续爬）"""
     data = request.json
     topic = data.get('topic', '')
     limit = int(data.get('limit', 15))
+    continue_mode = bool(data.get('continue', False))
 
     if not topic:
         return jsonify({"error": "请输入有效的微博话题或关键词"}), 400
 
     try:
-        df = run_pipeline(topic, limit)
-        return jsonify(build_topic_response(df))
+        df, crawl_info = run_pipeline(topic, limit, continue_mode=continue_mode)
+        response = build_topic_response(df)
+        response['crawl_info'] = crawl_info
+        return jsonify(response)
     except Exception as e:
         tb = traceback.format_exc()
         return jsonify({"error": f"流水线执行失败: {str(e)}\n\nTRACEBACK:\n{tb}"}), 500
@@ -201,31 +204,22 @@ def analyze_single_user(uid):
 
     df = compute_model_features(df)
 
-    # 3. 模型预测
-    feature_cols = [
-        'daily_post_rate', 'human_likeness_score',
-        'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
-        'sentiment_score', 'topic_diversity', 'post_interval_variance'
-    ]
+    # 3. 统一评分 (v1.8.0 — 与话题检测使用同一套评分体系)
+    from scoring import FEATURE_COLS, compute_final_score, get_model_proba
 
-    for c in feature_cols:
+    for c in FEATURE_COLS:
         if c not in df.columns:
             df[c] = 0.0
 
-    X = df[feature_cols].fillna(0)
-    features_dict = {c: float(X[c].iloc[0]) for c in feature_cols}
+    X = df[FEATURE_COLS].fillna(0)
+    features_dict = {c: float(X[c].iloc[0]) for c in FEATURE_COLS}
 
-    try:
-        model = joblib.load('weibo_bot_rf_model.pkl')
-        if hasattr(model, 'predict_proba'):
-            probs = model.predict_proba(X)
-            score = float(probs[0][1]) if probs.shape[1] > 1 else float(probs[0][0])
-        else:
-            score = float(model.predict(X)[0])
-        score = max(0.0, min(1.0, score))
-    except Exception as e:
-        print(f"[WARN] Model prediction failed: {e}")
-        score = 0.5
+    model_probs, _ = get_model_proba(X)
+    model_prob = float(model_probs[0])
+
+    # 构造 row dict 供 compute_final_score 使用 (需含 verified_reason)
+    row_dict = {**features_dict, 'verified_reason': user_info.get('verified_reason', '')}
+    score = compute_final_score(features_dict, model_prob, row_dict)
 
     # 4. 生成判定理由
     reasons = generate_reasons(features_dict, score, user_info)

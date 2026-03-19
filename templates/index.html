@@ -155,6 +155,20 @@
                     <li class="log-item">
                         <span class="log-date">2026-03-19</span>
                         <div class="log-content">
+                            <strong>v1.7.0 断点续爬与数据持久化</strong>
+                            <p>引入 SQLite 持久化层，支持跨批次去重与累积聚合分析。用户可随时"继续深入采集"，不再受限于单次检测窗口。</p>
+                        </div>
+                    </li>
+                    <li class="log-item">
+                        <span class="log-date">2026-03-19</span>
+                        <div class="log-content">
+                            <strong>v1.6.0 检测容量线性扩容</strong>
+                            <p>基于 v1.5.0 的性能飞跃，将单次话题检测的采样深度上限从 100 提升至 300 条，支持更大规模的水军群体探测。</p>
+                        </div>
+                    </li>
+                    <li class="log-item">
+                        <span class="log-date">2026-03-19</span>
+                        <div class="log-content">
                             <strong>v1.5.0 数据采集层“瘦身”优化</strong>
                             <p>下线了耗时的 <code>get_ip</code> 同步请求，并全面剔除地理位置、文章链接、用户性别等非推理字段的采集，整体响应速度提升约 300%。</p>
                         </div>
@@ -199,7 +213,7 @@
                     <input type="text" id="topicInput" placeholder="输入微博话题关键词，如：中东局势彻底失控" spellcheck="false">
                     <div class="input-options">
                         <label>采样深度：<strong id="depthVal">20</strong></label>
-                        <input type="range" id="depthSlider" min="10" max="100" value="20" step="5">
+                        <input type="range" id="depthSlider" min="10" max="300" value="20" step="5">
                     </div>
                 </div>
                 <button id="topicBtn" class="primary-btn">
@@ -219,15 +233,32 @@
                 <div class="progress-bar">
                     <div id="progressFill" class="progress-fill"></div>
                 </div>
-                <p class="progress-tip">正在深度采集微博数据，请耐心等待 (约 1.2s/条)</p>
+                <p class="progress-tip">正在深度采集微博数据，请耐心等待 (约 2.2s/条)</p>
             </div>
 
             <!-- Topic Results -->
             <div id="topicResults" class="results-area" style="display:none">
+                <!-- v1.7.0: Continuation Banner -->
+                <div id="crawlBanner" class="crawl-banner" style="display:none">
+                    <div class="crawl-banner-info">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        <span id="crawlBannerText">本次新增 0 条数据，该话题下已累计分析 0 条帖子</span>
+                    </div>
+                    <!-- v1.7.5: New Depth Selector for Continuation -->
+                    <div class="continue-controls">
+                        <span class="control-label">新增采样深度: <span id="continueDepthVal">20</span></span>
+                        <input type="range" id="continueDepthSlider" min="20" max="300" step="10" value="20">
+                    </div>
+                    <button id="continueBtn" class="continue-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                        继续深入采集
+                    </button>
+                </div>
+
                 <div class="stats-row">
                     <div class="stat-card">
                         <div class="stat-number" id="stat-total">0</div>
-                        <div class="stat-label">扫描账号数</div>
+                        <div class="stat-label">累计获取帖子数</div>
                     </div>
                     <div class="stat-card alert">
                         <div class="stat-number" id="stat-bots">0</div>
