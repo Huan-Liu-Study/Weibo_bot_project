@@ -108,10 +108,7 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     }
 
     # 使用异步并发获取用户画像（比原同步循环快 5-10 倍）
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    user_results = loop.run_until_complete(fetch_all_users_info(unique_users, HEADERS))
-    loop.close()
+    user_results = asyncio.run(fetch_all_users_info(unique_users, HEADERS))
 
     user_features = {r['uid']: r for r in user_results}
 

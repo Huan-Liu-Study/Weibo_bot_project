@@ -50,14 +50,11 @@ def main():
     uids = df['user_id'].unique()
     print(f"  共 {len(uids)} 个独立用户")
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        results = loop.run_until_complete(fetch_all_users_info(uids, HEADERS))
+        results = asyncio.run(fetch_all_users_info(uids, HEADERS))
     except Exception as e:
         print(f"Fetch failed: {e}")
         results = []
-    loop.close()
 
     user_map = {r['uid']: r for r in results}
     for field in ['followers_count', 'friends_count', 'statuses_count', 'description', 'avatar_hd', 'recent_post_times', 'recent_engagements', 'recent_topics', 'verified_reason']:
@@ -97,7 +94,7 @@ def main():
             existing_df = pd.read_csv(out_path, encoding='utf-8-sig')
             if 'user_id' in existing_df.columns:
                 labeled_uids = set(existing_df['user_id'].unique())
-        except:
+        except Exception:
             pass
             
     unique_uids = [u for u in all_unique_uids if u not in labeled_uids]
@@ -225,7 +222,7 @@ def main():
             try:
                 old_df = pd.read_csv(out_path, encoding='utf-8-sig')
                 final_df = pd.concat([old_df, result_df], ignore_index=True)
-            except:
+            except Exception:
                 final_df = result_df
         else:
             final_df = result_df

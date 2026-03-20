@@ -1,3 +1,4 @@
+import ast
 import pandas as pd
 import numpy as np
 import re
@@ -22,7 +23,7 @@ def calc_sentiment(text):
     try:
         score = SnowNLP(sample).sentiments
         return round(score, 4)
-    except:
+    except Exception:
         return 0.5
 
 def compute_model_features(df):
@@ -36,7 +37,6 @@ def compute_model_features(df):
         df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(int)
 
     # ====== 统一解析：将 CSV 中存储的字符串格式列表还原为 Python list ======
-    import ast
     def _parse_list(val):
         if isinstance(val, list):
             return val
@@ -66,7 +66,7 @@ def compute_model_features(df):
                 rate = len(times_list) / span_days
             # 强制盖帽：每天最多算 50 贴（超过这个量对判别水军已经没有意义，只会制造特征极化的噪音）
             return float(min(50.0, rate))
-        except: return 0.0
+        except Exception: return 0.0
     df['daily_post_rate'] = df.apply(_dpr, axis=1)
 
     # 3 human_likeness_score (替换 text_len)

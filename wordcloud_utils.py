@@ -25,7 +25,7 @@ def generate_wordcloud_data(texts, top_n=50):
             for w in s.words:
                 if len(w) > 1 and w not in STOPWORDS:
                     words.append(w)
-        except:
+        except Exception:
             continue
             
     counts = Counter(words).most_common(top_n)

@@ -78,10 +78,7 @@ def main():
     unique_users = df['user_id'].unique()
     print(f"  需要查询 {len(unique_users)} 个独立用户...")
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    user_results = loop.run_until_complete(_fetch_all(unique_users, HEADERS))
-    loop.close()
+    user_results = asyncio.run(_fetch_all(unique_users, HEADERS))
 
     user_map = {r['uid']: r for r in user_results if r}
     

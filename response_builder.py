@@ -146,14 +146,11 @@ def analyze_single_user(uid):
         async with aiohttp.ClientSession() as session:
             return await fetch_user_profile_and_timeline(session, uid, headers)
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        user_info = loop.run_until_complete(fetch())
+        user_info = asyncio.run(fetch())
     except Exception as e:
         print(f"Error fetching user: {e}")
         user_info = None
-    loop.close()
 
     if not user_info or user_info.get('followers_count', 0) == 0 and not user_info.get('screen_name'):
         return {"error": f"无法获取 UID={uid} 的用户信息，请检查 UID 是否正确或 Cookie 是否过期"}

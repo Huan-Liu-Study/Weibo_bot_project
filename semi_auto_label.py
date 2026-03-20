@@ -55,10 +55,7 @@ def main():
     cookie = _load_cookie()
     HEADERS = {'cookie': cookie, 'User-Agent': 'Mozilla/5.0'}
     
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    results = loop.run_until_complete(fetch_all_users_info(unique_uids, HEADERS))
-    loop.close()
+    results = asyncio.run(fetch_all_users_info(unique_uids, HEADERS))
 
     user_map = {r['uid']: r for r in results}
     for field in ['screen_name', 'recent_texts', 'followers_count', 'friends_count', 'statuses_count', 'description', 'avatar_hd', 'recent_post_times', 'recent_engagements', 'recent_topics', 'verified_reason']:
