@@ -204,6 +204,10 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                 单账号检测
             </button>
+            <button class="tab-btn" data-tab="history">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+                历史记录
+            </button>
         </nav>
 
         <!-- ========== Tab 1: Topic Detection ========== -->
@@ -285,6 +289,12 @@
                     </div>
                 </div>
 
+                <!-- v1.9.0 全量数据散点图 -->
+                <div class="chart-card full-width" style="margin-bottom: 2rem;">
+                    <h3>全景态势探索（点击气泡查看该账号各项判定详情）</h3>
+                    <div id="scatterChart" class="chart-container" style="height: 400px;"></div>
+                </div>
+
                 <div class="suspects-section">
                     <h3>高危可疑账号</h3>
                     <div id="suspectList" class="suspect-grid"></div>
@@ -342,6 +352,54 @@
                 </div>
             </div>
         </section>
+
+        <!-- ========== Tab 3: History Management ========== -->
+        <section id="tab-history" class="tab-panel">
+            <div class="history-header">
+                <h2>📦 历史检测记录</h2>
+                <p class="history-desc">以下话题的检测数据已持久化保存在后端数据库中。您可以随时回看历史结果，也可以删除不再需要的数据。</p>
+            </div>
+            <div id="historyList" class="history-grid">
+                <div class="history-empty">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <p>暂无历史记录</p>
+                </div>
+            </div>
+        </section>
+        
+        <!-- ==================== v1.9.0 NODE DETAIL MODAL ==================== -->
+        <div id="nodeModal" class="info-overlay" style="display:none; z-index: 1000;">
+            <div class="overlay-backdrop" id="nodeModalBackdrop"></div>
+            <div class="info-modal node-modal">
+                <button class="close-overlay" id="closeNodeModal">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+                <div class="modal-header">
+                    <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 8px;"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.9 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>账号判定详情</h2>
+                </div>
+                <div class="modal-body node-modal-body">
+                    <div class="node-profile" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                        <div class="user-avatar" id="nmAvatar" style="width: 50px; height: 50px; line-height: 50px; font-size: 1.5rem;">?</div>
+                        <div class="user-info" style="flex: 1;">
+                            <h3 id="nmName" style="margin:0 0 5px 0; font-size: 1.2rem; color: var(--text);">—</h3>
+                            <p id="nmMeta" style="margin:0; font-size: 0.85rem; color: var(--text-dim);">—</p>
+                        </div>
+                        <div class="suspect-score" id="nmScore" style="padding: 8px 16px; border-radius: 20px; font-weight: 700;">0%</div>
+                    </div>
+                    <div class="node-text-box" style="background: rgba(0,0,0,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 1.5rem;">
+                        <p id="nmText" style="margin:0; font-size: 0.95rem; line-height: 1.6; color: var(--text);">—</p>
+                    </div>
+                    <div class="node-reasons">
+                        <h4 style="margin: 0 0 1rem 0; font-size: 1.05rem; color: var(--text); display: flex; align-items: center; gap: 8px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                            智能判定理由
+                        </h4>
+                        <ul id="nmReasons" class="reasons-list"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </main>
 
     <footer>

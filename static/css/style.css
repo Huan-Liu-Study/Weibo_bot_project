@@ -546,6 +546,23 @@ body {
 .reasons-list li.flag-medium { border-left-color: var(--warning); }
 .reasons-list li.flag-low { border-left-color: var(--success); }
 
+/* v1.9.2 红旗预警特殊高亮 */
+.reasons-list li.red-flag {
+    background: rgba(201, 107, 94, 0.08);
+    border: 1px solid rgba(201, 107, 94, 0.3);
+    border-left: 5px solid var(--danger);
+    font-weight: 600;
+    color: var(--danger);
+    animation: pulse-red 2s infinite;
+}
+
+@keyframes pulse-red {
+    0% { box-shadow: 0 0 0 0 rgba(201, 107, 94, 0.2); }
+    70% { box-shadow: 0 0 0 10px rgba(201, 107, 94, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(201, 107, 94, 0); }
+}
+
+
 /* ============ PROGRESS ============ */
 .progress-area {
     background: var(--bg-card);
@@ -1089,4 +1106,130 @@ footer {
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
+}
+
+/* ============ HISTORY PANEL (v1.9.10) ============ */
+.history-header {
+    margin-bottom: 2rem;
+}
+.history-header h2 {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    color: var(--text);
+    margin: 0 0 0.5rem 0;
+}
+.history-desc {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+.history-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.2rem;
+}
+.history-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    transition: all 0.25s ease;
+    position: relative;
+    overflow: hidden;
+}
+.history-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-light));
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+.history-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    border-color: var(--accent);
+}
+.history-card:hover::before {
+    opacity: 1;
+}
+.history-card-topic {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 0.8rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.history-card-topic svg {
+    flex-shrink: 0;
+    color: var(--accent);
+}
+.history-card-meta {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 1.2rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+.history-card-meta span {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+.history-card-actions {
+    display: flex;
+    gap: 0.8rem;
+}
+.history-load-btn {
+    flex: 1;
+    padding: 0.6rem 1rem;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+}
+.history-load-btn:hover {
+    background: var(--accent-light);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(184, 148, 61, 0.25);
+}
+.history-delete-btn {
+    padding: 0.6rem 1rem;
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid rgba(201, 107, 94, 0.3);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+.history-delete-btn:hover {
+    background: rgba(201, 107, 94, 0.1);
+    border-color: var(--danger);
+}
+.history-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 4rem 2rem;
+    color: var(--text-dim);
+}
+.history-empty p {
+    margin-top: 1rem;
+    font-size: 1rem;
 }

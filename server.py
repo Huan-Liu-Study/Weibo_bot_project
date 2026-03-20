@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import asyncio
 import re
+import topic_db
 
 app = Flask(__name__)
 
@@ -64,25 +65,62 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/api/history', methods=['GET'])
+def get_history():
+    """获取所有历史话题的列表"""
+    try:
+        topics = topic_db.get_all_topics()
+        return jsonify({"status": "success", "topics": topics})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/delete_topic', methods=['POST'])
+def delete_topic():
+    """删除特定话题的数据"""
+    data = request.json
+    topic = data.get('topic', '')
+    if not topic:
+        return jsonify({"error": "缺少话题参数"}), 400
+    try:
+        topic_db.clear_topic(topic)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/detect', methods=['POST'])
 def detect_bots():
-    """话题检测 API：输入话题关键词，返回水军检测结果（支持断点续爬）"""
+    """话题检测 API：输入话题关键词，返回水军检测结果（支持断点续爬及历史加载）"""
     data = request.json
     topic = data.get('topic', '')
     limit = int(data.get('limit', 15))
     continue_mode = bool(data.get('continue', False))
+    action = data.get('action', 'fetch')  # 'fetch' or 'load'
 
     if not topic:
         return jsonify({"error": "请输入有效的微博话题或关键词"}), 400
 
     try:
-        df, crawl_info = run_pipeline(topic, limit, continue_mode=continue_mode)
+        if action == 'load':
+            df = topic_db.load_all_posts(topic)
+            if df.empty:
+                return jsonify({"error": f"未找到话题 '{topic}' 的历史数据"}), 404
+            meta = topic_db.get_topic_meta(topic)
+            crawl_info = {'new_fetched': 0, 'total_fetched': meta['total_fetched'], 'has_more': True}
+        else:
+            df, crawl_info = run_pipeline(topic, limit, continue_mode=continue_mode)
+            
+        if df.empty and action != 'load':
+            return jsonify({"error": "未获取到任何数据，可能是被反爬或数据为空。"})
+
         response = build_topic_response(df)
         response['crawl_info'] = crawl_info
         return jsonify(response)
     except Exception as e:
         tb = traceback.format_exc()
-        return jsonify({"error": f"流水线执行失败: {str(e)}\n\nTRACEBACK:\n{tb}"}), 500
+        return jsonify({"error": f"执行失败: {str(e)}\n\nTRACEBACK:\n{tb}"}), 500
+
 
 
 @app.route('/api/check_user', methods=['POST'])
@@ -129,6 +167,39 @@ def build_topic_response(df):
         radar_metrics['humans'] = {f: float(humans_df[f].mean()) if not humans_df.empty and f in humans_df.columns else 0 for f in radar_features}
         radar_metrics['bots'] = {f: float(bots_df[f].mean()) if not bots_df.empty and f in bots_df.columns else 0 for f in radar_features}
 
+    all_nodes_list = []
+    if 'is_bot_pred' in df.columns:
+        feature_cols = [
+            'daily_post_rate', 'human_likeness_score',
+            'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
+            'sentiment_score', 'topic_diversity', 'post_interval_variance'
+        ]
+        # v1.9.0 构造全量节点数据，用于支持散点图可视化与点击弹窗
+        for _, row in df.iterrows():
+            node_dict = {
+                'user_id': str(row.get('user_id', '')),
+                'name': str(row.get('用户昵称', '')),
+                'text': str(row.get('微博正文', '')),
+                'sentiment_score': float(row.get('sentiment_score', 0.5)),
+                'single_sentiment_score': float(row.get('single_sentiment_score', row.get('sentiment_score', 0.5))),
+                'suspicion_score': float(row.get('bot_probability', 0)),
+                'is_bot_pred': int(row.get('is_bot_pred', 0)),
+                'followers_count': int(row.get('followers_count', 0)),
+                'statuses_count': int(row.get('statuses_count', 0))
+            }
+            features_dict = {c: float(row.get(c, 0)) for c in feature_cols}
+            node_dict['features'] = features_dict
+            
+            score = float(row.get('bot_probability', 0))
+            user_info = {
+                'verified_reason': str(row.get('verified_reason', '')),
+                'description': str(row.get('description', ''))
+            }
+            node_dict['reasons'] = generate_reasons(features_dict, score, user_info)
+            node_dict['has_red_flag'] = any(r.get('is_red_flag') for r in node_dict['reasons'])
+            all_nodes_list.append(node_dict)
+
+
     suspects_list = []
     if 'is_bot_pred' in df.columns:
         suspects_df = df[df['is_bot_pred'] == 1].sort_values(by='bot_probability', ascending=False).head(10)
@@ -158,6 +229,7 @@ def build_topic_response(df):
         },
         "radar_metrics": radar_metrics,
         "suspects": clean_for_json(suspects_list),
+        "all_nodes": clean_for_json(all_nodes_list),
         "feed": clean_for_json(df.head(20))
     }
 
@@ -256,19 +328,20 @@ def generate_reasons(features, score, user_info):
 
     # 发帖间隔方差
     piv = features.get('post_interval_variance', 0)
-    if piv < 0.5:
-        reasons.append({"level": "high", "text": f"🔴 发帖间隔极其规律（方差={piv:.2f}），疑似定时自动化发帖"})
+    if piv < 0.69:  # log1p(1) ≈ 0.693, see scoring.py 红旗1
+        reasons.append({"level": "high", "is_red_flag": True, "text": f"🚩 红旗预警：发帖间隔极其机械化（方差={piv:.2f}），已触发系统自动拦截机制"})
     elif piv < 1.5:
         reasons.append({"level": "medium", "text": f"🟡 发帖间隔较为规律（方差={piv:.2f}），有一定可疑度"})
     else:
-        reasons.append({"level": "low", "text": f"🟢 发帖间隔较随机（方差={piv:.2f}），符合真人行为模式"})
+        reasons.append({"level": "low", "text": f"低危：发帖间隔较随机（方差={piv:.2f}）"})
 
     # 日均发帖率
     dpr = features.get('daily_post_rate', 0)
-    if dpr > 3.9:  # log1p(50) ≈ 3.93
-        reasons.append({"level": "high", "text": f"🔴 日均发帖率极高（log值={dpr:.2f}），超出正常人类水平"})
+    if dpr >= 3.93:  # log1p(50) = 3.93, see scoring.py 红旗2
+        reasons.append({"level": "high", "is_red_flag": True, "text": f"🚩 红旗预警：日均发帖量极高（log值={dpr:.2f}），超出人类极限，判定为机器代发"})
     elif dpr > 2.4:  # log1p(10) ≈ 2.40
         reasons.append({"level": "medium", "text": f"🟡 日均发帖率偏高（log值={dpr:.2f}）"})
+
     else:
         reasons.append({"level": "low", "text": f"🟢 发帖频率正常（log值={dpr:.2f}）"})
 
@@ -290,14 +363,18 @@ def generate_reasons(features, score, user_info):
 
     # 话题多样性
     td = features.get('topic_diversity', 0)
-    if td < 0.2:
+    if td <= 0.1:  # scoring.py 红旗3
+        reasons.append({"level": "high", "is_red_flag": True, "text": f"🚩 红旗预警：话题分布极其狭隘（多样性={td:.2f}），明显属于工业化刷榜脚本"})
+    elif td < 0.2:
         reasons.append({"level": "high", "text": f"🔴 话题多样性极低（{td:.2f}），疑似长期刷单一话题"})
     elif td > 0.7:
-        reasons.append({"level": "low", "text": f"🟢 话题涉猎广泛（多样性={td:.2f}）"})
+        reasons.append({"level": "low", "text": f"低危：话题涉猎广泛（多样性={td:.2f}）"})
 
     # 乱码昵称
     if features.get('is_random_name', 0) == 1:
-        reasons.append({"level": "high", "text": "🔴 用户昵称含5位以上连续数字，疑似批量注册账号"})
+        reasons.append({"level": "high", "text": "🔴 乱码昵称：识别为系统随机生成的数字乱码，符合批量注册特征"})
+
+
 
     # 感叹号密度
     ed = features.get('exclamation_density', 0)

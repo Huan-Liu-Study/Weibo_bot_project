@@ -121,6 +121,24 @@ def get_topic_meta(topic: str) -> dict:
         return {'total_fetched': row[0], 'last_updated': row[1]}
     return {'total_fetched': 0, 'last_updated': None}
 
+def get_all_topics() -> list:
+    """Return a list of all stored topics and their metadata."""
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT topic, total_fetched, last_updated FROM topic_meta ORDER BY last_updated DESC"
+    ).fetchall()
+    conn.close()
+    
+    topics = []
+    for r in rows:
+        topics.append({
+            'topic': r[0],
+            'total_fetched': r[1],
+            'last_updated': r[2]
+        })
+    return topics
+
+
 
 def clear_topic(topic: str):
     """Delete all data for a specific topic (fresh start)."""

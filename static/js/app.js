@@ -149,12 +149,19 @@
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
-        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        const panel = document.getElementById('tab-' + tab);
+        if (panel) panel.classList.add('active');
+        
+        if (tab === 'history') {
+            fetchHistory();
+        }
     });
 });
+
 
 
 // ==================== DEPTH SLIDER ====================
@@ -316,6 +323,11 @@ function renderTopicResults(data, crawlInfo) {
     if (data.radar_metrics && data.radar_metrics.humans && data.radar_metrics.bots) {
         renderRadarChart('radarChart', data.radar_metrics.humans, data.radar_metrics.bots);
     }
+    
+    // v1.9.0
+    if (data.all_nodes && data.all_nodes.length > 0) {
+        renderScatterChart(data.all_nodes);
+    }
 
     renderSuspects(data.suspects || []);
 }
@@ -374,6 +386,197 @@ function renderRadarChart(containerId, humansData, botsData) {
         }]
     });
     window.addEventListener('resize', () => chart.resize());
+}
+
+// ==================== DATABASE VISUALIZATION (v1.9.0) ====================
+function renderScatterChart(nodes) {
+    const chart = echarts.init(document.getElementById('scatterChart'));
+    
+    // 构造散点图数据 (v1.9.4 分级体系)
+    const humansData = [];
+    const warningsData = [];
+    const botsData = [];
+    
+    nodes.forEach(n => {
+        const item = {
+            name: n.name,
+            value: [n.single_sentiment_score || n.sentiment_score, n.suspicion_score, n.user_id, n.text, n],
+            itemStyle: {
+                opacity: 0.82,
+                shadowBlur: 10,
+                shadowColor: 'rgba(0,0,0,0.15)'
+            }
+        };
+        
+        if (n.is_bot_pred === 1) {
+            botsData.push(item);
+        } else if (n.has_red_flag) {
+            warningsData.push(item);
+        } else {
+            humansData.push(item);
+        }
+    });
+    
+    const option = {
+        tooltip: {
+            backgroundColor: 'rgba(255, 255, 255, 0.98)',
+            borderColor: '#e8e0d4',
+            textStyle: { color: '#2c2418' },
+            formatter: function (param) {
+                const data = param.data.value;
+                const n = data[4];
+                const score = (data[1] * 100).toFixed(0) + '%';
+                const textPreview = data[3].substring(0, 50) + (data[3].length > 50 ? '...' : '');
+                
+                let riskLabel = '<span style="color:#7cb87a;">良好</span>';
+                let color = '#7cb87a';
+                if (n.is_bot_pred === 1) {
+                    riskLabel = '<span style="color:#c96b5e;">高危</span>';
+                    color = '#c96b5e';
+                } else if (n.has_red_flag) {
+                    riskLabel = '<span style="color:#f39c12;">预警</span>';
+                    color = '#f39c12';
+                }
+                
+                return `
+                    <div style="font-weight:600;margin-bottom:6px;border-bottom:1px solid #e8e0d4;padding-bottom:6px;">
+                        ${param.data.name} [${riskLabel}] <span style="float:right;color:${color};">${score}</span>
+                    </div>
+                    <div style="font-size:12px;color:#8a7e6b;max-width:300px;white-space:normal;line-height:1.5;">${escapeHtml(textPreview)}</div>
+                    <div style="margin-top:8px;font-size:11px;color:#b8943d;">👉 点击气泡查看由于哪些特征被判定</div>
+                `;
+            }
+        },
+        legend: {
+            bottom: 10,
+            textStyle: { color: '#8a7e6b' },
+            data: ['正常用户', '触碰红旗', '疑似水军']
+        },
+        xAxis: {
+            name: '情感倾向 (越右越积极)',
+            nameLocation: 'middle',
+            nameGap: 30,
+            splitLine: { lineStyle: { type: 'dashed', color: '#e8e0d4' } },
+            axisLine: { lineStyle: { color: '#8a7e6b' } },
+            min: 0, max: 1
+        },
+        yAxis: {
+            name: '系统嫌疑度',
+            nameLocation: 'end',
+            splitLine: { lineStyle: { type: 'dashed', color: '#e8e0d4' } },
+            axisLine: { lineStyle: { color: '#8a7e6b' } },
+            min: 0, max: 1
+        },
+        series: [
+            {
+                name: '正常用户',
+                type: 'scatter',
+                data: humansData,
+                // v1.9.5: 使用对数缩放 (log10)，防止大V账号气泡遮挡全景
+                symbolSize: (data) => Math.min(Math.log10((data[4].followers_count || 0) + 1) * 6 + 6, 40),
+                itemStyle: { color: '#7cb87a', borderColor: '#fff', borderWidth: 1 }
+            },
+            {
+                name: '触碰红旗',
+                type: 'scatter',
+                data: warningsData,
+                symbolSize: (data) => Math.min(Math.log10((data[4].followers_count || 0) + 1) * 6 + 10, 45),
+                itemStyle: { color: '#f39c12', borderColor: '#fff', borderWidth: 1 }
+            },
+            {
+                name: '疑似水军',
+                type: 'scatter',
+                data: botsData,
+                symbolSize: (data) => Math.min(Math.log10((data[4].followers_count || 0) + 1) * 6 + 14, 50),
+                itemStyle: { color: '#c96b5e', borderColor: '#fff', borderWidth: 1 }
+            }
+        ]
+
+    };
+    
+    chart.setOption(option, true);
+    
+    // 监听点击事件，打开弹窗
+    chart.off('click');
+    chart.on('click', function(params) {
+        if (params.data && params.data.value) {
+            const rawNodeData = params.data.value[4];
+            openNodeModal(rawNodeData);
+        }
+    });
+    
+    window.addEventListener('resize', () => chart.resize());
+}
+
+function openNodeModal(node) {
+    const modal = document.getElementById('nodeModal');
+    if (!modal) return;
+    
+    // 填充数据
+    const name = node.name || 'UID:' + node.user_id;
+    const score = (node.suspicion_score * 100).toFixed(0);
+    const isBot = node.is_bot_pred === 1;
+    
+    document.getElementById('nmAvatar').textContent = name.substring(0, 1).toUpperCase();
+    document.getElementById('nmName').textContent = name;
+    document.getElementById('nmMeta').textContent = `UID: ${node.user_id} | 粉丝: ${node.followers_count} | 发帖: ${node.statuses_count}`;
+    
+    const scoreEl = document.getElementById('nmScore');
+    scoreEl.textContent = `${score}%`;
+    scoreEl.className = 'suspect-score ' + (score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low');
+    if (score >= 70) {
+        scoreEl.style.color = '#c96b5e';
+        scoreEl.style.backgroundColor = 'rgba(201, 107, 94, 0.12)';
+    } else if (score >= 40) {
+        scoreEl.style.color = '#b8943d';
+        scoreEl.style.backgroundColor = 'rgba(184, 148, 61, 0.12)';
+    } else {
+        scoreEl.style.color = '#7cb87a';
+        scoreEl.style.backgroundColor = 'rgba(124, 184, 122, 0.12)';
+    }
+    
+    document.getElementById('nmText').innerHTML = escapeHtml(node.text).replace(/\n/g, '<br>');
+    
+    // 理由
+    const reasonsUl = document.getElementById('nmReasons');
+    if (node.reasons && node.reasons.length > 0) {
+        reasonsUl.innerHTML = node.reasons.map(r => {
+            let cls = r.level === 'high' ? 'flag-high' : r.level === 'medium' ? 'flag-medium' : 'flag-low';
+            if (r.is_red_flag) cls += ' red-flag';
+            const icon = r.is_red_flag ? '🚩 ' : '';
+            return `<li class="${cls}">${icon}${escapeHtml(r.text)}</li>`;
+        }).join('');
+    } else {
+        reasonsUl.innerHTML = `<li class="flag-low">该账号行为正常，特征处于健康区间。</li>`;
+    }
+    
+    // 显示弹窗
+    modal.style.display = 'flex';
+    // 异步添加 active 类以触发 CSS 过渡动画 (opacity & transform)
+    setTimeout(() => {
+        modal.classList.add('active');
+    }, 10);
+    document.body.style.overflow = 'hidden'; // 防止背景滚动
+}
+
+// 绑定背景和关闭按钮
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('closeNodeModal');
+    const bg = document.getElementById('nodeModalBackdrop');
+    if (btn) btn.addEventListener('click', closeNodeModal);
+    if (bg) bg.addEventListener('click', closeNodeModal);
+});
+
+function closeNodeModal() {
+    const modal = document.getElementById('nodeModal');
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+        // 延时等待 CSS 动画 (0.4s) 结束后彻底隐藏
+        setTimeout(() => {
+            modal.style.display = 'none';
+        }, 400);
+    }
 }
 
 function renderSuspects(suspects) {
@@ -643,10 +846,139 @@ function renderReasons(reasons) {
     });
 })();
 
-// ==================== UTILS ====================
+// ==================== HISTORY MANAGEMENT (v1.9.10) ====================
+
+async function fetchHistory() {
+    const list = document.getElementById('historyList');
+    if (!list) return;
+    
+    try {
+        const res = await fetch('/api/history');
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            renderHistory(data.topics);
+        }
+    } catch (err) {
+        console.error('Fetch history failed:', err);
+    }
+}
+
+function renderHistory(topics) {
+    const list = document.getElementById('historyList');
+    if (topics.length === 0) {
+        list.innerHTML = `
+            <div class="history-empty">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <p>暂无历史记录</p>
+            </div>
+        `;
+        return;
+    }
+    
+    list.innerHTML = topics.map((t, i) => {
+        const date = new Date(t.last_updated).toLocaleString();
+        return `
+            <div class="history-card" data-index="${i}">
+                <div class="history-card-topic">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    ${escapeHtml(t.topic)}
+                </div>
+                <div class="history-card-meta">
+                    <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> ${t.total_fetched} 条数据</span>
+                    <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${date}</span>
+                </div>
+                <div class="history-card-actions">
+                    <button class="history-load-btn" data-action="load" data-index="${i}">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                        查看历史全景
+                    </button>
+                    <button class="history-delete-btn" data-action="delete" data-index="${i}">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    // 使用事件委托绑定按钮 (v1.9.13 — 避免 inline onclick 的特殊字符问题)
+    window._historyTopics = topics;
+    list.querySelectorAll('[data-action="load"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.index);
+            loadHistoryTopic(window._historyTopics[idx].topic);
+        });
+    });
+    list.querySelectorAll('[data-action="delete"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.index);
+            deleteHistoryTopic(window._historyTopics[idx].topic);
+        });
+    });
+}
+
+async function loadHistoryTopic(topic) {
+    // 切换到话题检测 Tab 并加载数据
+    document.querySelector('[data-tab="topic"]').click();
+    const input = document.getElementById('topicInput');
+    if (input) input.value = topic;
+    
+    // 清理旧结果，准备展示新结果
+    document.getElementById('topicResults').style.display = 'none';
+    document.getElementById('topicProgress').style.display = 'block';
+    document.getElementById('progressStatus').textContent = '正在从本地数据库调取历史全景...';
+    document.getElementById('progressFill').style.width = '100%';
+
+    
+    // 调用 API 载入
+    try {
+        const res = await fetch('/api/detect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic, action: 'load' })
+        });
+        const data = await res.json();
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        
+        // 延迟消失加载条，展示结果
+        setTimeout(() => {
+            // 同步全局变量，使历史话题也能触发“续爬”逻辑 (v1.9.12)
+            window._lastCrawlTopic = topic;
+            
+            document.getElementById('topicProgress').style.display = 'none';
+            renderTopicResults(data, data.crawl_info);
+        }, 300);
+    } catch (err) {
+        console.error('Load history topic failed:', err);
+    }
+}
+
+async function deleteHistoryTopic(topic) {
+    if (!confirm(`确定要删除话题 “${topic}” 的所有本地数据吗？此操作不可撤销。`)) return;
+    
+    try {
+        const res = await fetch('/api/delete_topic', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            fetchHistory(); // 刷新列表
+        } else {
+            alert(data.error || '删除失败');
+        }
+    } catch (err) {
+        console.error('Delete history topic failed:', err);
+    }
+}
 
 function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
 }
+

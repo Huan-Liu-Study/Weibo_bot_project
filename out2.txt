@@ -1,0 +1,2 @@
+human_likeness_score: 0.48857142857142855
+model_confidence: 0.6262

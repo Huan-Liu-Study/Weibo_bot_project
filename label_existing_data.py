@@ -19,6 +19,8 @@ import joblib
 from datetime import datetime
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import cross_val_score, StratifiedKFold, KFold
+from snownlp import SnowNLP
+
 
 
 # ===================== Cookie =====================
@@ -120,10 +122,31 @@ async def _fetch_all(uids, headers):
 
 # ===================== 特征计算 (9 维模型核心) =====================
 
-def compute_model_features(df):
-    from snownlp import SnowNLP
+def calc_sentiment(text):
+    """
+    v1.9.1 增强型情感分析计算
+    """
+    if not text or not isinstance(text, str): return 0.5
+    # 1. 基础清理
+    clean = re.sub(r"http\S+", "", text)
+    # 2. 增强清理：针对 [打call] 等微博特色表情符号及话题标签
+    clean = re.sub(r"\[.*?\]", "", clean)
+    clean = re.sub(r"#.*?#", "", clean)
+    clean = clean.strip()
+    
+    if not clean: return 0.5
+    
+    # 3. 截断防止模型极化
+    sample = clean[:100]
+    try:
+        score = SnowNLP(sample).sentiments
+        return round(score, 4)
+    except:
+        return 0.5
 
+def compute_model_features(df):
     cc = '微博正文' if '微博正文' in df.columns else 'text'
+
     nc = '用户昵称' if '用户昵称' in df.columns else 'screen_name'
     df[cc] = df[cc].astype(str).fillna('')
     df[nc] = df[nc].astype(str).fillna('')
@@ -223,17 +246,8 @@ def compute_model_features(df):
     df['is_verified'] = df.get(auth, pd.Series([''] * len(df))).astype(str).apply(lambda x: 1 if 'V' in x or '认证' in x else 0)
 
     # 10 sentiment_score
-    def _sent(text):
-        clean = re.sub(r"http\S+", "", text).strip()
-        if not clean: return 0.5
-        # SnowNLP 朴素贝叶斯遇到长文本会导致概率连乘极化，永远等于 1.0 或 0.0
-        # 所以截取前 100 个字符进行情感判断更准
-        clean = clean[:100]
-        try: 
-            score = SnowNLP(clean).sentiments
-            return round(score, 4)
-        except: return 0.5
-    df['sentiment_score'] = df[cc].apply(_sent)
+    df['sentiment_score'] = df[cc].apply(calc_sentiment)
+
 
     # 10 sentiment_score
 

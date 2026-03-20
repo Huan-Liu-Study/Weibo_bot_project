@@ -38,6 +38,7 @@ async def fetch_user_info(session, uid, headers):
     result = {
         'uid': uid,
         'followers_count': 0,
+        'friends_count': 0,
         'statuses_count': 0,
         'created_at': '',
         'description': '',
@@ -45,6 +46,7 @@ async def fetch_user_info(session, uid, headers):
         'recent_post_times': [],
         'recent_engagements': [],
         'recent_topics': [],
+        'recent_texts': [],
         'verified_reason': '',
     }
 
@@ -57,6 +59,7 @@ async def fetch_user_info(session, uid, headers):
                 user_info = data.get('data', {}).get('user', {})
                 if user_info:
                     result['followers_count'] = user_info.get('followers_count', 0)
+                    result['friends_count'] = user_info.get('friends_count', 0)
                     result['statuses_count'] = user_info.get('statuses_count', 0)
                     result['created_at'] = user_info.get('created_at', '')
                     result['description'] = user_info.get('description', '')
@@ -80,6 +83,7 @@ async def fetch_user_info(session, uid, headers):
                     # 别人发的帖子会出现在 timeline 是因为“赞过的微博”等机制，绝对不能算作自己的互动！
                     eng_list = []
                     topics_list = []
+                    texts_list = []
                     uid_str = str(uid)
                     for p in posts:
                         is_own_post = str(p.get('user', {}).get('id', '')) == uid_str
@@ -101,6 +105,7 @@ async def fetch_user_info(session, uid, headers):
                         if is_valid_post:
                             eng = p.get('reposts_count', 0) + p.get('comments_count', 0) + p.get('attitudes_count', 0)
                             eng_list.append(eng)
+                            texts_list.append(text)
                             
                             # 提取特征：话题多样性
                             import re
@@ -110,6 +115,7 @@ async def fetch_user_info(session, uid, headers):
                     
                     result['recent_engagements'] = eng_list
                     result['recent_topics'] = topics_list
+                    result['recent_texts'] = texts_list
     except Exception as e:
         print(f"Fetch timeline failed for {uid}: {e}")
 
@@ -215,6 +221,7 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     user_features = {r['uid']: r for r in user_results}
 
     df['followers_count'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('followers_count', 0))
+    df['friends_count'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('friends_count', 0))
     df['statuses_count'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('statuses_count', 0))
     df['account_created_at'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('created_at', ''))
     df['description'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('description', ''))
@@ -222,9 +229,10 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     df['recent_post_times'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('recent_post_times', []))
     df['recent_engagements'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('recent_engagements', []))
     df['recent_topics'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('recent_topics', []))
+    df['recent_texts'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('recent_texts', []))
     df['verified_reason'] = df['user_id'].apply(lambda x: user_features.get(x, {}).get('verified_reason', ''))
 
-    for col in ['followers_count', 'statuses_count']:
+    for col in ['followers_count', 'friends_count', 'statuses_count']:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype('int64')
 
     # ============================================================
@@ -238,150 +246,41 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     name_col = '用户昵称' if '用户昵称' in df.columns else 'ûǳ'
     df[name_col] = df.get(name_col, df.get('ûǳ', pd.Series([''] * len(df)))).astype(str).fillna('')
 
-    # --- 特征 1: daily_post_rate （近期实际日均发帖率）---
-    # 使用 API 返回的近 ~20 条帖子的时间戳计算真实的近期发帖频率
-    # 公式: 帖子数 / 时间跨度天数
-    def get_daily_rate(row):
-        times_list = row.get('recent_post_times', [])
-        if not times_list or not isinstance(times_list, list) or len(times_list) < 2:
-            return 0.0
-        try:
-            dts = sorted([pd.to_datetime(t).replace(tzinfo=None) for t in times_list])
-            span_days = (dts[-1] - dts[0]).total_seconds() / 86400.0  # 最新帖到最老帖的天数
-            if span_days < 0.01:
-                rate = float(len(times_list))
-            else:
-                rate = len(times_list) / span_days
-            return float(min(50.0, rate))
+    # ============================================================
+    # 统一特征工程 (Feature Engineering) — 调用 label_existing_data 共享逻辑
+    # ============================================================
+    from label_existing_data import compute_model_features
 
-        except Exception:
-            return 0.0
-
-    df['daily_post_rate'] = df.apply(get_daily_rate, axis=1)
-
-    # --- 特征 3: human_likeness_score (替换 text_len) ---
-    def _calc_human_likeness(text):
-        if not isinstance(text, str) or not text.strip(): return 0.0
-        
-        # 清理话题标签等无关内容
-        clean_text = re.sub(r'#.*?#', '', text)
-        clean_text = re.sub(r'@[\u4e00-\u9fa5a-zA-Z0-9_-]+', '', clean_text)
-        clean_text = re.sub(r'https?://[^\s]+', '', clean_text)
-        clean_text = re.sub(r'\[.*?\]', '', clean_text) # 过滤表情
-        clean_text = re.sub(r'[^\u4e00-\u9fa5]', '', clean_text) # 仅保留中文字符用于计算
-        
-        if len(clean_text) < 3: return 0.0
-        
-        # 1. 词汇丰富度 (40%)：去重字符占总字符比
-        diversity = len(set(clean_text)) / len(clean_text)
-        
-        # 2. 主观情绪词密度 (30%)
-        subjective_words = ['我', '觉得', '认为', '太', '怎么', '感觉', '真的', '其实', '居然', '没想到']
-        subj_count = sum(1 for w in subjective_words if w in text)
-        subjectivity = min(1.0, subj_count / 3.0) # 3个主观词即满分
-        
-        # 3. 复句复杂度 (30%)
-        complex_words = ['虽然', '但是', '如果', '就', '哪怕', '因为', '所以', '不仅', '而且', '与其', '不如']
-        comp_count = sum(1 for w in complex_words if w in text)
-        complexity = min(1.0, comp_count / 2.0) # 2个连词即满分
-        
-        return float((diversity * 0.4) + (subjectivity * 0.3) + (complexity * 0.3))
-
-    df['human_likeness_score'] = df[content_col].apply(_calc_human_likeness)
-
-    # --- 特征 3: exclamation_density （感叹号密度）---
-    def calc_exclamation_density(text):
-        if len(text) == 0:
-            return 0.0
-        return (text.count('!') + text.count('！')) / len(text)
-
-    df['exclamation_density'] = df[content_col].apply(calc_exclamation_density)
-
-    # --- 特征 7: is_random_name （是否数字乱码昵称）---
-    df['is_random_name'] = df[name_col].apply(lambda x: 1 if re.search(r'\d{5,}', x) else 0)
-
-    # --- 特征 8: engagement_count （互动率 = 近20条转+评+赞平均值，原 zero_engagement）---
-    def calc_recent_engagement(eng_list):
-        if not eng_list or not isinstance(eng_list, list): return 1.0 # 护盾
-        try: eng_list = [float(x) for x in eng_list]
-        except Exception: return 1.0 # 护盾
-        if len(eng_list) == 0: return 1.0 # 护盾
-        
-        avg_eng = sum(eng_list) / len(eng_list)
-        return max(1.0, avg_eng) # 兜底保护低调素人
-
-    df['engagement_count'] = df.apply(lambda r: calc_recent_engagement(r.get('recent_engagements', [])), axis=1)
-
-    # --- 特征 9: is_verified （是否V认证）---
+    # 构造用于提取文本特征的长文本 (与 server.py 单账号检测完全对齐：使用近期原创微博组合)
+    df['text_for_features'] = df.apply(
+        lambda row: ' '.join(row.get('recent_texts', [])[:3]) if isinstance(row.get('recent_texts'), list) and len(row.get('recent_texts', [])) > 0 else str(row.get(content_col, '')),
+        axis=1
+    )
+    
+    # 保存原始正文，为了提取特征临时替换
+    original_texts = df['微博正文'].copy() if '微博正文' in df.columns else df[content_col].copy()
+    df['微博正文'] = df['text_for_features']
+    
+    # 补充必要字段防止报错
     auth_col = 'user_authentication'
-    df[auth_col] = df.get(auth_col, df.get('会员类型', pd.Series([''] * len(df)))).astype(str).fillna('')
-    df['is_verified'] = df[auth_col].apply(lambda x: 1 if 'V' in x or '认证' in x else 0)
-
-    # --- 特征 10: sentiment_score （情感极性，之前遗漏未入模型）---
-    def _get_sentiment(text):
-        from snownlp import SnowNLP
-        clean = re.sub(r"http\S+", "", str(text)).strip()
-        if not clean: return 0.5
-        # 截取前100字符，防止朴素贝叶斯连乘极化
-        clean = clean[:100]
-        try: return round(SnowNLP(clean).sentiments, 4)
-        except: return 0.5
-
-    df['sentiment_score'] = df[content_col].apply(_get_sentiment)
-
-    # --- 特征 10: sentiment_score （情感极性）---
-
-    # --- 特征 13: topic_diversity (取代旧的urank) ---
-    # 计算公式: 独立话题数量 / 近期发帖总数 (没发帖或没话题则为0)
-    def calc_topic_diversity(row):
-        topics = row.get('recent_topics', [])
-        times_list = row.get('recent_post_times', [])
-        if not isinstance(times_list, list) or len(times_list) == 0:
-            return 0.5
-        n_posts = len(times_list)
-        if not isinstance(topics, list):
-            topics = []
-        m_tags = len(topics)
-        unique_tags = len(set(topics))
-        untagged_posts = max(0, n_posts - m_tags)
-        score = (unique_tags + untagged_posts) / n_posts
-        return float(min(1.0, score))
-
+    if auth_col not in df.columns:
+        df[auth_col] = df.get('会员类型', pd.Series([''] * len(df))).astype(str).fillna('')
         
-    df['topic_diversity'] = df.apply(calc_topic_diversity, axis=1)
+    df = compute_model_features(df)
 
-    # --- 特征 13: topic_diversity ---
+    # v1.9.1 增加单条微博的情感极性，专门用于散点图横坐标展示，避免因为聚合文本导致的情感不准
+    from label_existing_data import calc_sentiment
+    df['single_sentiment_score'] = original_texts.apply(calc_sentiment)
 
-    # --- 特征 15: post_interval_variance （近期发帖时间间隔方差，时序核心特征）---
-    def _calc_variance(times_list):
-        if not times_list or len(times_list) < 2:
-            return 0.0
-        try:
-            dts = [pd.to_datetime(t).replace(tzinfo=None) for t in times_list]
-            dts.sort()
-            intervals = [(dts[i+1] - dts[i]).total_seconds() / 3600.0 for i in range(len(dts)-1)]
-            return float(np.std(intervals))
-        except:
-            return 0.0
-
-    df['post_interval_variance'] = df.get('recent_post_times', pd.Series([[]]*len(df))).apply(_calc_variance)
-
-    # ====== log1p scaling (aligned with label_existing_data.py) ======
-    for col in ['daily_post_rate', 'post_interval_variance']:
-        if col in df.columns:
-            df[col] = np.log1p(df[col].clip(lower=0))
-
+    # 恢复原始正文用于前端展示，并强制列名为 '微博正文'
+    df['微博正文'] = original_texts
+    
+    if name_col in df.columns and '用户昵称' not in df.columns:
+        df['用户昵称'] = df[name_col]
 
     # 发布工具（保留用于前端展示）
     source_col = '发布工具' if '发布工具' in df.columns else 'source'
     df['source'] = df.get(source_col, df.get('source', pd.Series(['未知'] * len(df))))
-
-    # 强制统一列名以返回前端展示
-    if '微博正文' not in df.columns and content_col in df.columns:
-        df['微博正文'] = df[content_col]
-
-    if '用户昵称' not in df.columns and name_col in df.columns:
-        df['用户昵称'] = df[name_col]
 
     # ============================================================
     # 可疑度评分系统 (v1.8.0 统一评分体系 — 调用 scoring.py)
