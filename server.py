@@ -7,6 +7,9 @@ import pandas as pd
 import asyncio
 import re
 import topic_db
+from collections import Counter
+from snownlp import SnowNLP
+
 
 app = Flask(__name__)
 
@@ -48,6 +51,39 @@ def clean_for_json(df):
                 except (ValueError, TypeError):
                     pass  # if pd.isna fails, keep original value
     return records
+
+
+# ===================== WordCloud Logic (v1.9.40) =====================
+
+STOPWORDS = set([
+    '的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你',
+    '会', '着', '没', '看', '好', '自己', '这', '让', '那', '点', '还', '个', '把', '多', '去', '被', '走', '对', '谁', '太', '再',
+    '里', '后', '想', '打', '起来', '过', '得', '能', '下', '等', '把', '我们', '你们', '他们', '它们', '微博', '分享', '链接', '全文',
+    '转发', '哈哈', '表情', '视频', '图片', '今天', '一个', '就是', '还是', '怎么', '感觉', '真的', '现在', '因为', '所以', '如果', '但是',
+    '开始', '发现', '已经', '看到', '出来', '还有', '一下', '非常', '比较', '这种', '那个', '这里', '那里', '其实', '可能', '所以', '知道'
+])
+
+def generate_wordcloud_data(texts, top_n=50):
+    """使用 SnowNLP 进行分词并统计词频"""
+    words = []
+    for text in texts:
+        if not text or not isinstance(text, str):
+            continue
+        try:
+            # 过滤掉非中文字符，保留关键词质量
+            clean_text = re.sub(r'[^\u4e00-\u9fa5]', '', text)
+            if len(clean_text) < 2:
+                continue
+            s = SnowNLP(clean_text)
+            for w in s.words:
+                if len(w) > 1 and w not in STOPWORDS:
+                    words.append(w)
+        except:
+            continue
+            
+    counts = Counter(words).most_common(top_n)
+    return [{"name": k, "value": v} for k, v in counts]
+
 
 
 
@@ -184,6 +220,7 @@ def build_topic_response(df):
                 'single_sentiment_score': float(row.get('single_sentiment_score', row.get('sentiment_score', 0.5))),
                 'suspicion_score': float(row.get('bot_probability', 0)),
                 'is_bot_pred': int(row.get('is_bot_pred', 0)),
+                'is_news_media': int(row.get('is_news_media', 0)),
                 'followers_count': int(row.get('followers_count', 0)),
                 'statuses_count': int(row.get('statuses_count', 0))
             }
@@ -202,7 +239,8 @@ def build_topic_response(df):
 
     suspects_list = []
     if 'is_bot_pred' in df.columns:
-        suspects_df = df[df['is_bot_pred'] == 1].sort_values(by='bot_probability', ascending=False).head(10)
+        suspects_df = df[df['is_bot_pred'] == 1].sort_values(by='bot_probability', ascending=False)
+
         feature_cols = [
             'daily_post_rate', 'human_likeness_score',
             'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
@@ -224,14 +262,20 @@ def build_topic_response(df):
         "summary": {
             "total_scanned": total_scanned,
             "bot_count": bot_count,
+            "news_count": int(df['is_news_media'].sum()) if 'is_news_media' in df.columns else 0,
             "bot_ratio": bot_ratio,
             "overall_sentiment": overall_sentiment
         },
         "radar_metrics": radar_metrics,
         "suspects": clean_for_json(suspects_list),
         "all_nodes": clean_for_json(all_nodes_list),
+        "wordclouds": {
+            "humans": generate_wordcloud_data(df[(df['is_bot_pred'] == 0) & (df['is_news_media'] == 0)]['微博正文'].tolist()),
+            "bots": generate_wordcloud_data(df[df['is_bot_pred'] == 1]['微博正文'].tolist())
+        },
         "feed": clean_for_json(df.head(20))
     }
+
 
 def analyze_single_user(uid):
     """分析单个用户的可疑度"""
@@ -324,7 +368,24 @@ def analyze_single_user(uid):
 
 def generate_reasons(features, score, user_info):
     """根据特征值生成人类可读的判定理由"""
+    from scoring import is_news_media
     reasons = []
+
+    # 优先检查新闻媒体豁免 (v1.9.15)
+    # 构造合规的 row 字典供 is_news_media 使用
+    row_check = {
+        'verified_reason': user_info.get('verified_reason', ''),
+        'description': user_info.get('description', ''),
+        'screen_name': user_info.get('screen_name', ''),
+        '用户昵称': user_info.get('screen_name', ''),
+        'is_verified': 1 if user_info.get('verified_reason') else 0
+    }
+    if is_news_media(row_check):
+        reasons.append({
+            "level": "low", 
+            "text": "✅ 系统识其为媒体/官方机构：已执行豁免算法，大幅降低评分权重，降低误报。"
+        })
+
 
     # 发帖间隔方差
     piv = features.get('post_interval_variance', 0)

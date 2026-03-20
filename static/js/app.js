@@ -177,7 +177,14 @@ if (depthSlider) {
 
 // ==================== TOPIC DETECTION ====================
 
+// ==================== GLOBAL STATES (v1.9.30) ====================
+let _lastCrawlTopic = ''; 
+let _allSuspects = [];   
+let _suspectPage = 1;    
+const _suspectPageSize = 5; 
+
 const topicBtn = document.getElementById('topicBtn');
+
 if (topicBtn) {
     topicBtn.addEventListener('click', async () => {
         const topic = document.getElementById('topicInput').value.trim();
@@ -233,11 +240,11 @@ if (topicBtn) {
             const res = await fetch('/api/detect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic, limit: depth, continue: window._lastCrawlTopic === topic })
+                body: JSON.stringify({ topic, limit: depth, continue: _lastCrawlTopic === topic })
             });
 
             // Remember the topic/depth for continuation
-            window._lastCrawlTopic = topic;
+            _lastCrawlTopic = topic;
             window._lastCrawlDepth = depth;
 
             const data = await res.json();
@@ -251,7 +258,13 @@ if (topicBtn) {
                 showError('topicResults', data.error);
             } else {
                 renderTopicResults(data, data.crawl_info);
+                if (data.wordclouds) {
+                    // 延迟渲染以确保 DOM 就绪或给予 CSS 动画时间
+                    setTimeout(() => renderWordClouds(data.wordclouds), 100);
+                }
             }
+
+
         } catch (e) {
             clearInterval(timer);
             progressArea.style.display = 'none';
@@ -273,7 +286,7 @@ if (topicBtn) {
 
     // --- v1.7.0: "继续深入采集" button ---
     document.getElementById('continueBtn').addEventListener('click', () => {
-        const topic = window._lastCrawlTopic;
+        const topic = _lastCrawlTopic;
         const depth = continueSlider.value || 20;
         if (!topic) return;
 
@@ -312,13 +325,12 @@ function renderTopicResults(data, crawlInfo) {
     const s = data.summary;
     document.getElementById('stat-total').textContent = s.total_scanned;
     document.getElementById('stat-bots').textContent = s.bot_count;
+    document.getElementById('stat-news').textContent = s.news_count || 0;
     document.getElementById('stat-ratio').textContent = s.bot_ratio + '%';
 
-    const sent = s.overall_sentiment;
-    const sentEl = document.getElementById('stat-sentiment');
-    sentEl.textContent = (sent * 100).toFixed(0);
+    const humans = s.total_scanned - s.bot_count - (s.news_count || 0);
 
-    renderPieChart(s.total_scanned - s.bot_count, s.bot_count);
+    renderPieChart(Math.max(0, humans), s.bot_count, s.news_count || 0);
 
     if (data.radar_metrics && data.radar_metrics.humans && data.radar_metrics.bots) {
         renderRadarChart('radarChart', data.radar_metrics.humans, data.radar_metrics.bots);
@@ -329,10 +341,16 @@ function renderTopicResults(data, crawlInfo) {
         renderScatterChart(data.all_nodes);
     }
 
+    // v1.9.40: Word clouds (rendered inside renderTopicResults to guarantee execution)
+    if (data.wordclouds) {
+        setTimeout(() => renderWordClouds(data.wordclouds), 200);
+    }
+
     renderSuspects(data.suspects || []);
 }
 
-function renderPieChart(humans, bots) {
+
+function renderPieChart(humans, bots, news) {
     const chart = echarts.init(document.getElementById('pieChart'));
     chart.setOption({
         tooltip: { trigger: 'item', backgroundColor: '#fff', borderColor: '#e8e0d4', textStyle: { color: '#2c2418' } },
@@ -344,7 +362,8 @@ function renderPieChart(humans, bots) {
             label: { show: true, color: '#2c2418', formatter: '{b}\n{d}%' },
             data: [
                 { value: humans, name: '正常用户', itemStyle: { color: '#7cb87a' } },
-                { value: bots, name: '疑似水军', itemStyle: { color: '#c96b5e' } }
+                { value: bots, name: '疑似水军', itemStyle: { color: '#c96b5e' } },
+                { value: news, name: '新闻媒体', itemStyle: { color: '#3498db' } }
             ]
         }]
     });
@@ -388,14 +407,82 @@ function renderRadarChart(containerId, humansData, botsData) {
     window.addEventListener('resize', () => chart.resize());
 }
 
+// ==================== WORDCLOUD (v1.9.40) ====================
+
+function renderWordClouds(data) {
+    if (!data) return;
+    initCloud('humanWordCloud', data.humans || [], '#3498db');
+    initCloud('botWordCloud', data.bots || [], '#c96b5e');
+}
+
+function initCloud(id, words, baseColor) {
+    const chartDom = document.getElementById(id);
+    if (!chartDom) return;
+    const myChart = echarts.init(chartDom);
+    
+    // 如果没有数据，显示提示
+    if (!words || words.length === 0) {
+        myChart.setOption({
+            graphic: [{
+                type: 'text',
+                left: 'center',
+                top: 'center',
+                style: {
+                    text: '暂无足够样本文本',
+                    fill: '#999',
+                    font: '14px sans-serif'
+                }
+            }]
+        });
+        return;
+    }
+
+    const option = {
+        tooltip: { show: true },
+        series: [{
+            type: 'wordCloud',
+            shape: 'circle',
+            left: 'center',
+            top: 'center',
+            width: '90%',
+            height: '90%',
+            right: null,
+            bottom: null,
+            sizeRange: [12, 45],
+            rotationRange: [-45, 90],
+            rotationStep: 45,
+            gridSize: 8,
+            drawOutOfBound: false,
+            textStyle: {
+                fontFamily: 'Outfit, Inter, sans-serif',
+                fontWeight: 'bold',
+                color: function () {
+                    // 使用传入的基准色
+                    return baseColor;
+                }
+            },
+            emphasis: {
+                focus: 'self',
+                textStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.1)' }
+            },
+            data: words
+        }]
+    };
+
+    myChart.setOption(option);
+    window.addEventListener('resize', () => myChart.resize());
+}
+
 // ==================== DATABASE VISUALIZATION (v1.9.0) ====================
+
 function renderScatterChart(nodes) {
     const chart = echarts.init(document.getElementById('scatterChart'));
     
-    // 构造散点图数据 (v1.9.4 分级体系)
+    // 构造散点图数据 (v1.9.4 分级体系 + v1.9.20 媒体识别)
     const humansData = [];
     const warningsData = [];
     const botsData = [];
+    const newsData = [];
     
     nodes.forEach(n => {
         const item = {
@@ -408,7 +495,9 @@ function renderScatterChart(nodes) {
             }
         };
         
-        if (n.is_bot_pred === 1) {
+        if (n.is_news_media === 1) {
+            newsData.push(item);
+        } else if (n.is_bot_pred === 1) {
             botsData.push(item);
         } else if (n.has_red_flag) {
             warningsData.push(item);
@@ -430,7 +519,10 @@ function renderScatterChart(nodes) {
                 
                 let riskLabel = '<span style="color:#7cb87a;">良好</span>';
                 let color = '#7cb87a';
-                if (n.is_bot_pred === 1) {
+                if (n.is_news_media === 1) {
+                    riskLabel = '<span style="color:#3498db;">媒体</span>';
+                    color = '#3498db';
+                } else if (n.is_bot_pred === 1) {
                     riskLabel = '<span style="color:#c96b5e;">高危</span>';
                     color = '#c96b5e';
                 } else if (n.has_red_flag) {
@@ -450,7 +542,7 @@ function renderScatterChart(nodes) {
         legend: {
             bottom: 10,
             textStyle: { color: '#8a7e6b' },
-            data: ['正常用户', '触碰红旗', '疑似水军']
+            data: ['正常用户', '触碰红旗', '疑似水军', '新闻媒体']
         },
         xAxis: {
             name: '情感倾向 (越右越积极)',
@@ -489,8 +581,16 @@ function renderScatterChart(nodes) {
                 data: botsData,
                 symbolSize: (data) => Math.min(Math.log10((data[4].followers_count || 0) + 1) * 6 + 14, 50),
                 itemStyle: { color: '#c96b5e', borderColor: '#fff', borderWidth: 1 }
+            },
+            {
+                name: '新闻媒体',
+                type: 'scatter',
+                data: newsData,
+                symbolSize: (data) => Math.min(Math.log10((data[4].followers_count || 0) + 1) * 6 + 12, 45),
+                itemStyle: { color: '#3498db', borderColor: '#fff', borderWidth: 1 }
             }
         ]
+
 
     };
     
@@ -565,7 +665,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const bg = document.getElementById('nodeModalBackdrop');
     if (btn) btn.addEventListener('click', closeNodeModal);
     if (bg) bg.addEventListener('click', closeNodeModal);
+
+    // v1.9.30: Suspect Pagination listeners
+    const prevBtn = document.getElementById('prevSuspectBtn');
+    const nextBtn = document.getElementById('nextSuspectBtn');
+    if (prevBtn) prevBtn.addEventListener('click', () => goToSuspectPage(_suspectPage - 1));
+    if (nextBtn) nextBtn.addEventListener('click', () => goToSuspectPage(_suspectPage + 1));
 });
+
 
 function closeNodeModal() {
     const modal = document.getElementById('nodeModal');
@@ -579,65 +686,86 @@ function closeNodeModal() {
     }
 }
 
+// ==================== SUSPECT LIST (v1.9.30 Pagination) ====================
 function renderSuspects(suspects) {
-    const list = document.getElementById('suspectList');
-    if (!suspects.length) {
-        list.innerHTML = '<p style="color:var(--text-dim);padding:20px;text-align:center;">未检出高危水军账号 🎉</p>';
+    _allSuspects = suspects || [];
+    _suspectPage = 1;
+    goToSuspectPage(1);
+}
+
+function goToSuspectPage(page) {
+    const totalPages = Math.ceil(_allSuspects.length / _suspectPageSize);
+    if (page < 1) page = 1;
+    if (page > totalPages) page = totalPages;
+    _suspectPage = page;
+
+    const container = document.getElementById('suspectList');
+    const pagination = document.getElementById('suspectPagination');
+    
+    if (_allSuspects.length === 0) {
+        container.innerHTML = `<div class="empty-hint">暂未发现明显的水军账号特征。</div>`;
+        pagination.style.display = 'none';
         return;
     }
-    list.innerHTML = suspects.map(s => {
+
+    pagination.style.display = 'flex';
+    document.getElementById('suspectPageInfo').textContent = `第 ${_suspectPage} / ${totalPages || 1} 页`;
+    document.getElementById('prevSuspectBtn').disabled = (_suspectPage <= 1);
+    document.getElementById('nextSuspectBtn').disabled = (_suspectPage >= totalPages);
+
+    const start = (_suspectPage - 1) * _suspectPageSize;
+    const end = start + _suspectPageSize;
+    const pagedSuspects = _allSuspects.slice(start, end);
+
+    container.innerHTML = pagedSuspects.map(s => {
         const score = (s.bot_probability * 100).toFixed(0);
+        const name = s.用户昵称 || s.screen_name;
+        const textPreview = s.微博正文 ? `"${escapeHtml(s.微博正文).substring(0, 40)}${s.微博正文.length > 40 ? '...' : ''}"` : '';
         const level = score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';
-        const text = (s['微博正文'] || s.text || '').substring(0, 80);
-        const name = s['用户昵称'] || s.screen_name || 'UID:' + s.user_id;
-        const reasonsHtml = s.reasons && s.reasons.length > 0
-            ? s.reasons.map(r => {
-                const cls = r.level === 'high' ? 'flag-high' : r.level === 'medium' ? 'flag-medium' : 'flag-low';
-                return `<li class="${cls}">${escapeHtml(r.text)}</li>`;
-            }).join('')
-            : '<li class="flag-low">暂无详细判定理由，仅满足评分阈值</li>';
+        
+        // 理由项渲染
+        const reasonsHtml = s.reasons.map(r => {
+            let cls = r.level === 'high' ? 'flag-high' : r.level === 'medium' ? 'flag-medium' : 'flag-low';
+            if (r.is_red_flag) cls += ' red-flag';
+            const icon = r.is_red_flag ? '🚩 ' : '';
+            return `<li class="${cls}">${icon}${escapeHtml(r.text)}</li>`;
+        }).join('');
 
         return `
-            <div class="suspect-item">
-                <div class="suspect-main" onclick="toggleSuspect(this)">
-                    <div class="suspect-score ${level}">${score}%</div>
+            <div class="suspect-card collapsed" onclick="toggleSuspect(this)">
+                <div class="suspect-header">
+                    <div class="suspect-score-mini ${level}">${score}%</div>
                     <div class="suspect-info">
                         <div class="suspect-name">${escapeHtml(name)}</div>
-                        <div class="suspect-text">"${escapeHtml(text)}"</div>
-                        <div class="suspect-meta">
-                            <span>粉丝 ${s.followers_count || 0}</span>
-                            <span>发帖 ${s.statuses_count || 0}</span>
-                        </div>
+                        <div class="suspect-text-mini">${textPreview}</div>
+                        <div class="suspect-meta-mini">粉丝 ${s.followers_count || 0} | 发帖 ${s.statuses_count || 0}</div>
                     </div>
-                    <svg class="suspect-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                    <div class="suspect-arrow">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                    </div>
                 </div>
-                <div class="suspect-reasons" style="display:none">
-
-                    <ul class="reasons-list">
-                        ${reasonsHtml}
-                    </ul>
+                <div class="suspect-details">
+                    <ul class="reasons-list">${reasonsHtml}</ul>
                 </div>
-            </div>`;
+            </div>
+        `;
     }).join('');
 }
 
+
 window.toggleSuspect = function(element) {
-    const parent = element.closest('.suspect-item');
-    const reasonsDiv = parent.querySelector('.suspect-reasons');
-    const arrow = parent.querySelector('.suspect-arrow');
+    const card = element.closest('.suspect-card');
+    if (!card) return;
     
-    if (reasonsDiv.style.display === 'none') {
-        reasonsDiv.style.display = 'block';
-        arrow.style.transform = 'rotate(180deg)';
-        parent.style.borderColor = 'var(--border)';
-        parent.style.boxShadow = 'var(--shadow)';
+    const isCollapsed = card.classList.contains('collapsed');
+    
+    if (isCollapsed) {
+        card.classList.remove('collapsed');
     } else {
-        reasonsDiv.style.display = 'none';
-        arrow.style.transform = 'rotate(0deg)';
-        parent.style.borderColor = 'transparent';
-        parent.style.boxShadow = 'none';
+        card.classList.add('collapsed');
     }
 }
+
 
 
 // ==================== SINGLE USER DETECTION ====================
@@ -945,12 +1073,17 @@ async function loadHistoryTopic(topic) {
         
         // 延迟消失加载条，展示结果
         setTimeout(() => {
-            // 同步全局变量，使历史话题也能触发“续爬”逻辑 (v1.9.12)
-            window._lastCrawlTopic = topic;
+            // 同步全局变量，使历史话题也能触发“续爬”逻辑 (v1.9.12/v1.9.45)
+            _lastCrawlTopic = topic;
             
             document.getElementById('topicProgress').style.display = 'none';
             renderTopicResults(data, data.crawl_info);
+            
+            // v1.9.45: 加载历史后也需要渲染词云和散点图
+            if (data.wordclouds) renderWordClouds(data.wordclouds);
+            if (data.all_nodes) renderScatterChart(data.all_nodes);
         }, 300);
+
     } catch (err) {
         console.error('Load history topic failed:', err);
     }

@@ -311,13 +311,15 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     )
 
     # --- 新闻媒体豁免 ---
+    df['is_news_media'] = df.apply(is_news_media, axis=1).astype(int)
     if model_available:
-        news_mask = df.apply(is_news_media, axis=1)
+        news_mask = (df['is_news_media'] == 1)
         df.loc[news_mask, 'suspicion_score'] = df.loc[news_mask, 'suspicion_score'].clip(upper=0.3)
 
     # 向后兼容
     df['bot_probability'] = df['suspicion_score']
     df['is_bot_pred'] = (df['suspicion_score'] >= 0.7).astype(int)
+
 
     # --- v1.7.0: 保存新增数据到 SQLite，然后返回聚合结果 ---
     new_fetched = len(df)
@@ -328,8 +330,12 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     all_df = topic_db.load_all_posts(topic)
     meta = topic_db.get_topic_meta(topic)
 
+    # 汇总统计
+    news_count = int(all_df['is_news_media'].sum()) if 'is_news_media' in all_df.columns else 0
+
     return all_df, {
         'new_fetched': new_fetched,
         'total_fetched': meta['total_fetched'],
+        'news_count': news_count,
         'has_more': True
     }

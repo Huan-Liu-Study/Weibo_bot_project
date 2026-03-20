@@ -11,6 +11,8 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts-wordcloud@2.1.0/dist/echarts-wordcloud.min.js"></script>
+
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -268,13 +270,13 @@
                         <div class="stat-number" id="stat-bots">0</div>
                         <div class="stat-label">疑似水军</div>
                     </div>
+                    <div class="stat-card info">
+                        <div class="stat-number" id="stat-news">0</div>
+                        <div class="stat-label">新闻媒体</div>
+                    </div>
                     <div class="stat-card">
                         <div class="stat-number" id="stat-ratio">0%</div>
                         <div class="stat-label">水军浓度</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number" id="stat-sentiment">—</div>
-                        <div class="stat-label">舆情极性</div>
                     </div>
                 </div>
 
@@ -295,9 +297,34 @@
                     <div id="scatterChart" class="chart-container" style="height: 400px;"></div>
                 </div>
 
+                <div class="charts-row wordclouds-row">
+                    <div class="chart-card">
+                        <h3>🧔 真人讨论热词 (已过滤媒体)</h3>
+                        <div id="humanWordCloud" class="chart-container cloud-container"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>🤖 水军复读机口径</h3>
+                        <div id="botWordCloud" class="chart-container cloud-container"></div>
+                    </div>
+                </div>
+
                 <div class="suspects-section">
+
                     <h3>高危可疑账号</h3>
                     <div id="suspectList" class="suspect-grid"></div>
+                    <!-- v1.9.30: Pagination for suspects -->
+                    <div id="suspectPagination" class="pagination-controls" style="display:none">
+                        <button id="prevSuspectBtn" class="page-btn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+                            上一页
+                        </button>
+                        <span id="suspectPageInfo" class="page-info">第 1 / 1 页</span>
+                        <button id="nextSuspectBtn" class="page-btn">
+                            下一页
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                    </div>
+
                 </div>
             </div>
         </section>

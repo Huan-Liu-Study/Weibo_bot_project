@@ -26,17 +26,28 @@ RED_FLAG_MIN_SCORE = 0.55
 
 _MEDIA_KEYWORDS = [
     '新闻', '媒体', '报社', '电视台', '日报', '晚报',
-    '广播', '通讯社', '新华', '央视', '人民', '网易',
-    '澎湃', '环球', '观察者', '纵览', '头条'
+    '广播', '通讯社', '新华', '央视', '人民', '环球',
+    '纵览', '头条','党建', '商报', '资讯', '播报', 
+    '报道', '发布','周刊', '官微', '政务'
 ]
 
 # ===================== 核心函数 =====================
 
 
 def is_news_media(row):
-    """判断是否为新闻媒体认证账号（仅这类认证有豁免力）"""
-    reason = str(row.get('verified_reason', ''))
-    return any(kw in reason for kw in _MEDIA_KEYWORDS)
+    """
+    判断是否为新闻媒体、政务或官方认证账号。
+    扫描维度：认证理由 (verified_reason)、简介 (description)。
+    """
+    reason = str(row.get('verified_reason', '')).lower()
+    desc = str(row.get('description', '')).lower()
+    
+    # 只要认证理由或简介命中关键词，即视为广义上的“机构/媒体”账号
+    is_keyword_match = any(kw in reason or kw in desc for kw in _MEDIA_KEYWORDS)
+    
+    return is_keyword_match
+
+
 
 
 def calc_rule_score(row):
