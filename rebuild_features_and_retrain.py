@@ -30,17 +30,15 @@ from sklearn.metrics import classification_report, confusion_matrix
 import os
 
 # 特征计算已迁移到 label_existing_data.py 的 compute_model_features 中
-from label_existing_data import compute_model_features, _fetch_all
+from features import compute_model_features
+from config import load_cookie as _load_cookie
 
 
 # ===================== 1. Cookie 读取 =====================
 
 def _load_cookie_from_settings():
-    settings_path = 'weibo-search/weibo/settings.py'
-    with open(settings_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    match = re.search(r"'cookie'\s*:\s*'([^']+)'", content)
-    return match.group(1) if match else ''
+    from config import load_cookie
+    return load_cookie()
 
 
 # ===================== 2. 主流程 =====================
@@ -110,11 +108,8 @@ def main():
     df = compute_model_features(df)
 
     # 使用新的 9 维特征和连续打分逻辑
-    feature_cols = [
-                'daily_post_rate', 'human_likeness_score',
-                'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
-                'sentiment_score', 'topic_diversity', 'post_interval_variance'
-            ]
+    from scoring import FEATURE_COLS
+    feature_cols = FEATURE_COLS
             
     # 只取有真实标签也就是人工审核过的数据（离散5档分数: 0, 0.25, 0.5, 0.75, 1.0）
     # 排除机器自动标注的连续分数数据，确保模型仅从专家判断中学习

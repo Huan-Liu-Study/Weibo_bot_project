@@ -23,41 +23,11 @@ project_dir = r'd:\Folders\Desktop\软件毕设\Weibo_bot_project'
 sys.path.insert(0, project_dir)
 os.chdir(project_dir)
 
-from label_existing_data import _fetch_all, compute_15_features, _load_cookie
+from weibo_api import fetch_all_users_info
+from features import compute_model_features
+from config import load_cookie as _load_cookie
+from scoring import FEATURE_COLS, is_official_media, apply_red_flags
 
-def is_official(row):
-    """从画像中识别官方账号、媒体、政务、客户端蓝V等"""
-    keywords = ['官方微博', '官方', '客户端', '新闻', '媒体', '资讯', '报', '网', '电台', '发布', '发布厅', '观察', '中心', '工作室', '频道']
-    auth = str(row.get('user_authentication', '')).lower() + str(row.get('verified_reason', '')).lower()
-    name = str(row.get('screen_name', row.get('用户昵称', ''))).lower()
-    
-    # 1. 认证类型特征 (蓝V等)
-    if any(k in auth for k in ['蓝v', '企业认证', '机构认证', '媒体认证', '政府认证', '官方认证']):
-        return True
-    # 2. 关键词穿透
-    if any(k in auth or k in name for k in keywords):
-        return True
-    return False
-
-def apply_red_flags(score, row):
-    """专家规则红旗否决机制"""
-    piv = float(row.get('post_interval_variance', -1))
-    dpr = float(row.get('daily_post_rate', 0))
-    td = float(row.get('topic_diversity', 0.5))
-    
-    # 🔴 红旗1: 发帖间隔方差 <= 1 (且有数据)
-    if 0 < piv <= 1:
-        score = max(score, 0.55)
-    
-    # 🔴 红旗2: 日均发帖 >= 50
-    if dpr >= 50:
-        score = max(score, 0.55)
-        
-    # 🔴 红旗3: 话题多样性 <= 10% (非默认值)
-    if td <= 0.1 and td != 0.5:
-        score = max(score, 0.55)
-        
-    return score
 
 async def main():
     print("=" * 60)
@@ -105,7 +75,7 @@ async def main():
     for i in range(0, len(unique_uids), batch_size):
         batch = unique_uids[i:i+batch_size]
         print(f"  正在处理第 {i//batch_size + 1} 批 ({len(batch)} 人)...")
-        results = await _fetch_all(batch, HEADERS)
+        results = await fetch_all_users_info(batch, HEADERS)
         all_results.extend(results)
         await asyncio.sleep(1)
 
@@ -119,11 +89,11 @@ async def main():
 
     # 4. 计算特征
     print("\n⚙️ [2/4] 计算 15 维语义特征...")
-    df_remaining = compute_15_features(df_remaining)
+    df_remaining = compute_model_features(df_remaining)
 
     # 🛡️ 新增：实时防护——过滤官方/媒体账号
     print("🛡️  正在扫描官方/蓝V账号...")
-    df_remaining['is_official_media'] = df_remaining.apply(is_official, axis=1)
+    df_remaining['is_official_media'] = df_remaining.apply(is_official_media, axis=1)
     officials = df_remaining[df_remaining['is_official_media']]
     
     if len(officials) > 0:
@@ -142,11 +112,7 @@ async def main():
     # 5. 模型预测
     print("\n🤖 [3/4] 加载模型进行全自动评分...")
     model = joblib.load(model_file)
-    feature_cols = [
-        'daily_post_rate', 'human_likeness_score',
-        'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
-        'sentiment_score', 'topic_diversity', 'post_interval_variance'
-    ]
+    feature_cols = FEATURE_COLS
     X = df_remaining[feature_cols].fillna(0)
     base_scores = model.predict(X)
     df_remaining['suspicion_score'] = base_scores

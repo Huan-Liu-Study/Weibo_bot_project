@@ -18,115 +18,10 @@ import topic_db
 
 def _load_cookie_from_settings():
     """从 weibo-search/weibo/settings.py 中动态读取 Cookie，统一管理"""
-    settings_path = 'weibo-search/weibo/settings.py'
-    with open(settings_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    # 提取 'cookie': '...' 中的值
-    match = re.search(r"'cookie'\s*:\s*'([^']+)'", content)
-    if match:
-        return match.group(1)
-    return ''
+    from config import load_cookie
+    return load_cookie()
 
-
-async def fetch_user_info(session, uid, headers):
-    """异步获取单个用户的画像数据（扩展字段版）"""
-    info_url = f'https://weibo.com/ajax/profile/info?custom={uid}'
-    current_headers = headers.copy()
-    current_headers['Referer'] = f'https://weibo.com/u/{uid}'
-    current_headers['Accept'] = 'application/json, text/plain, */*'
-
-    result = {
-        'uid': uid,
-        'followers_count': 0,
-        'friends_count': 0,
-        'statuses_count': 0,
-        'created_at': '',
-        'description': '',
-        'avatar_hd': '',
-        'recent_post_times': [],
-        'recent_engagements': [],
-        'recent_topics': [],
-        'recent_texts': [],
-        'verified_reason': '',
-    }
-
-    try:
-        # 增加一点随机延迟，防止并发过高被拒绝服务
-        await asyncio.sleep(0.1)
-        async with session.get(info_url, headers=current_headers, timeout=5) as response:
-            if response.status == 200:
-                data = await response.json()
-                user_info = data.get('data', {}).get('user', {})
-                if user_info:
-                    result['followers_count'] = user_info.get('followers_count', 0)
-                    result['friends_count'] = user_info.get('friends_count', 0)
-                    result['statuses_count'] = user_info.get('statuses_count', 0)
-                    result['created_at'] = user_info.get('created_at', '')
-                    result['description'] = user_info.get('description', '')
-                    result['avatar_hd'] = user_info.get('avatar_hd', '')
-                    result['verified_reason'] = user_info.get('verified_reason', '')
-    except Exception as e:
-        print(f"Fetch info failed for {uid}: {e}")
-
-    # 获取近期发帖列表 (用于时序特征)
-    timeline_url = f'https://weibo.com/ajax/statuses/mymblog?uid={uid}&page=1&feature=0'
-    try:
-        await asyncio.sleep(0.1)
-        async with session.get(timeline_url, headers=current_headers, timeout=5) as response:
-            if response.status == 200:
-                data = await response.json()
-                posts = data.get('data', {}).get('list', [])
-                if posts:
-                    result['recent_post_times'] = [p.get('created_at') for p in posts if p.get('created_at')]
-                    
-                    # ⚠️ 关键修正2：必须是该用户自己发的原创帖，不能是转发，也不能是点赞别人的帖子
-                    # 别人发的帖子会出现在 timeline 是因为“赞过的微博”等机制，绝对不能算作自己的互动！
-                    eng_list = []
-                    topics_list = []
-                    texts_list = []
-                    uid_str = str(uid)
-                    for p in posts:
-                        is_own_post = str(p.get('user', {}).get('id', '')) == uid_str
-                        is_retweet = 'retweeted_status' in p
-                        text = p.get('text_raw', p.get('text', ''))
-                        
-                        is_valid_post = False
-                        if is_own_post:
-                            if not is_retweet:
-                                is_valid_post = True
-                            else:
-                                # 检查是否为带有 5 个字以上自定义评论的转发
-                                import re
-                                custom_comment = text.split('//')[0]
-                                custom_comment = re.sub(r'转发微博|Repost|回复@\S+:', '', custom_comment).strip()
-                                if len(custom_comment) > 5:
-                                    is_valid_post = True
-                                    
-                        if is_valid_post:
-                            eng = p.get('reposts_count', 0) + p.get('comments_count', 0) + p.get('attitudes_count', 0)
-                            eng_list.append(eng)
-                            texts_list.append(text)
-                            
-                            # 提取特征：话题多样性
-                            import re
-                            found_topics = re.findall(r'#([^#]+)#', text)
-                            if found_topics:
-                                topics_list.extend(found_topics)
-                    
-                    result['recent_engagements'] = eng_list
-                    result['recent_topics'] = topics_list
-                    result['recent_texts'] = texts_list
-    except Exception as e:
-        print(f"Fetch timeline failed for {uid}: {e}")
-
-    return result
-
-
-async def fetch_all_users_info(uids, headers):
-    """并发获取所有用户画像"""
-    async with aiohttp.ClientSession() as session:
-        tasks = [fetch_user_info(session, uid, headers) for uid in uids]
-        return await asyncio.gather(*tasks)
+from weibo_api import fetch_all_users_info
 
 
 def run_pipeline(topic, limit=20, continue_mode=False):
@@ -249,7 +144,7 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     # ============================================================
     # 统一特征工程 (Feature Engineering) — 调用 label_existing_data 共享逻辑
     # ============================================================
-    from label_existing_data import compute_model_features
+    from features import compute_model_features
 
     # 构造用于提取文本特征的长文本 (与 server.py 单账号检测完全对齐：使用近期原创微博组合)
     df['text_for_features'] = df.apply(
@@ -285,7 +180,7 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     # ============================================================
     # 可疑度评分系统 (v1.8.0 统一评分体系 — 调用 scoring.py)
     # ============================================================
-    from scoring import FEATURE_COLS, calc_rule_score, get_model_proba, apply_red_flags, is_news_media
+    from scoring import FEATURE_COLS, calc_rule_score, get_model_proba, apply_red_flags, is_official_media
 
     # --- 步骤 1: 规则评分 ---
     df['rule_suspicion'] = df.apply(calc_rule_score, axis=1)
@@ -310,10 +205,10 @@ def run_pipeline(topic, limit=20, continue_mode=False):
         lambda row: apply_red_flags(row['suspicion_score'], row), axis=1
     )
 
-    # --- 新闻媒体豁免 ---
-    df['is_news_media'] = df.apply(is_news_media, axis=1).astype(int)
+    # --- 新闻媒体及官方豁免 ---
+    df['is_official_media'] = df.apply(is_official_media, axis=1).astype(int)
     if model_available:
-        news_mask = (df['is_news_media'] == 1)
+        news_mask = (df['is_official_media'] == 1)
         df.loc[news_mask, 'suspicion_score'] = df.loc[news_mask, 'suspicion_score'].clip(upper=0.3)
 
     # 向后兼容
@@ -331,7 +226,7 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     meta = topic_db.get_topic_meta(topic)
 
     # 汇总统计
-    news_count = int(all_df['is_news_media'].sum()) if 'is_news_media' in all_df.columns else 0
+    news_count = int(all_df['is_official_media'].sum()) if 'is_official_media' in all_df.columns else 0
 
     return all_df, {
         'new_fetched': new_fetched,

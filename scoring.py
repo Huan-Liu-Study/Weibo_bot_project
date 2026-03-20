@@ -24,28 +24,38 @@ FEATURE_COLS = [
 
 RED_FLAG_MIN_SCORE = 0.55
 
-_MEDIA_KEYWORDS = [
+_OFFICIAL_MEDIA_KEYWORDS = [
     '新闻', '媒体', '报社', '电视台', '日报', '晚报',
     '广播', '通讯社', '新华', '央视', '人民', '环球',
     '纵览', '头条','党建', '商报', '资讯', '播报', 
-    '报道', '发布','周刊', '官微', '政务'
+    '报道', '发布', '发布厅', '周刊', '官微', '政务',
+    '官方', '官方微博', '客户端', '报', '网', '电台', '观察', '中心', '工作室', '频道'
 ]
+
+_AUTH_KEYWORDS = ['蓝v', '企业认证', '机构认证', '媒体认证', '政府认证', '官方认证']
 
 # ===================== 核心函数 =====================
 
 
-def is_news_media(row):
+def is_official_media(row):
     """
-    判断是否为新闻媒体、政务或官方认证账号。
-    扫描维度：认证理由 (verified_reason)、简介 (description)。
+    判断是否为新闻媒体、政务、客户端或企业官方认证账号。
+    扫描维度：认证类型 (user_authentication)、认证理由 (verified_reason)、简介 (description)、昵称 (screen_name/用户昵称)。
     """
-    reason = str(row.get('verified_reason', '')).lower()
+    auth = str(row.get('user_authentication', '')).lower() + str(row.get('verified_reason', '')).lower()
     desc = str(row.get('description', '')).lower()
+    name = str(row.get('screen_name', row.get('用户昵称', ''))).lower()
     
-    # 只要认证理由或简介命中关键词，即视为广义上的“机构/媒体”账号
-    is_keyword_match = any(kw in reason or kw in desc for kw in _MEDIA_KEYWORDS)
-    
-    return is_keyword_match
+    # 1. 强特征：蓝V、企业/政府/媒体等认证标志
+    if any(k in auth for k in _AUTH_KEYWORDS):
+        return True
+        
+    # 2. 弱特征池：任何字段命中媒体/官方关键词
+    combined_text = auth + " | " + desc + " | " + name
+    if any(k in combined_text for k in _OFFICIAL_MEDIA_KEYWORDS):
+        return True
+        
+    return False
 
 
 
@@ -110,7 +120,7 @@ def calc_rule_score(row):
     raw_score = score / total_weight if total_weight > 0 else 0.0
 
     # 新闻媒体认证豁免 (×0.3 衰减)
-    if is_news_media(row):
+    if is_official_media(row):
         raw_score *= 0.3
 
     return round(min(max(raw_score, 0.0), 1.0), 4)
@@ -169,7 +179,7 @@ def compute_final_score(features_dict, model_prob, row):
     fused = apply_red_flags(fused, features_dict)
 
     # 新闻媒体豁免 (双重保障: 规则内部已做了一次, 融合后再 clip)
-    if is_news_media(row):
+    if is_official_media(row):
         fused = min(fused, 0.3)
 
     return round(min(max(fused, 0.0), 1.0), 4)

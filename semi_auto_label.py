@@ -7,32 +7,17 @@ import io
 import asyncio
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
-from label_existing_data import _fetch_all, compute_15_features, _load_cookie
+from weibo_api import fetch_all_users_info
+from features import compute_model_features
+from config import load_cookie as _load_cookie
+from scoring import FEATURE_COLS, is_official_media
+
 def get_ml_features(df):
     """提取模型所需特征"""
-    cols = [
-        'daily_post_rate', 'human_likeness_score',
-        'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
-        'sentiment_score', 'topic_diversity', 'post_interval_variance'
-    ]
-    for c in cols:
+    for c in FEATURE_COLS:
         if c not in df.columns:
             df[c] = 0
-    return df[cols].fillna(0)
-def is_official(row):
-    """判断是否为行政/媒体/企业官方抽样（蓝V或特定关键词）"""
-    keywords = ['官方微博', '官方', '客户端', '新闻', '媒体', '资讯', '报', '网', '电台', '发布', '发布厅', '观察', '中心', '工作室', '频道']
-    auth = str(row.get('user_authentication', '')).lower() + str(row.get('verified_reason', '')).lower()
-    name = str(row.get('用户昵称', row.get('screen_name', ''))).lower()
-    
-    # 蓝V认证特征
-    if any(k in auth for k in ['蓝v', '企业认证', '机构认证', '媒体认证', '政府认证', '官方认证']):
-        return True
-    
-    # 关键词穿透
-    if any(k in auth or k in name for k in keywords):
-        return True
-    return False
+    return df[FEATURE_COLS].fillna(0)
 
 def main():
     print("=" * 70)
@@ -72,7 +57,7 @@ def main():
     
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    results = loop.run_until_complete(_fetch_all(unique_uids, HEADERS))
+    results = loop.run_until_complete(fetch_all_users_info(unique_uids, HEADERS))
     loop.close()
 
     user_map = {r['uid']: r for r in results}
@@ -81,7 +66,7 @@ def main():
         topic_df[col_name] = topic_df['user_id'].apply(lambda x: user_map.get(x, {}).get(field, ''))
         
     print("[2/4] 计算 15 维特征...")
-    topic_df = compute_15_features(topic_df)
+    topic_df = compute_model_features(topic_df)
 
     # 3. 加载已有金标准，防止重复标注
     golden_file = 'golden_testset_labeled.csv'
@@ -101,15 +86,15 @@ def main():
 
     # 🟢 新增：实时过滤官方媒体号 (防止在人工复核阶段出现新闻客户端)
     print("🛡️  实时扫描官方媒体/行政账号...")
-    work_df['is_official'] = work_df.apply(is_official, axis=1)
-    official_count = work_df[work_df['is_official']]['user_id'].nunique()
+    work_df['is_official_media'] = work_df.apply(is_official_media, axis=1)
+    official_count = work_df[work_df['is_official_media']]['user_id'].nunique()
     if official_count > 0:
         print(f"  [FOUND] 自动识别出 {official_count} 个官方/媒体号，已将其移至隔离区。")
         # 存入存档文件
-        of_df = work_df[work_df['is_official']]
+        of_df = work_df[work_df['is_official_media']]
         of_df.to_csv('official_media_accounts_archive.csv', mode='a', header=not os.path.exists('official_media_accounts_archive.csv'), index=False, encoding='utf-8-sig')
         # 从当前工作流删除
-        work_df = work_df[~work_df['is_official']].copy()
+        work_df = work_df[~work_df['is_official_media']].copy()
         unlabeled_uids = [u for u in unlabeled_uids if u in work_df['user_id'].values]
 
 
@@ -332,11 +317,7 @@ def main():
         
         if len(final_df) >= 10:
             print(f"\n🚀 正在根据最新融合的数据集（共 {len(final_df)} 条）重新训练机器模型...")
-            feature_cols = [
-                'daily_post_rate', 'human_likeness_score',
-                'exclamation_density', 'is_random_name', 'engagement_count', 'is_verified',
-                'sentiment_score', 'topic_diversity', 'post_interval_variance'
-            ]
+            feature_cols = FEATURE_COLS
             for c in feature_cols:
                 if c not in final_df.columns: final_df[c] = 0.0
                 
