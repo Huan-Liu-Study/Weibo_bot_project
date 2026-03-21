@@ -1,137 +1,208 @@
-// ==================== THREE.JS GOLD PARTICLE SPHERE ====================
+// ==================== PREMIUM NEURAL NETWORK SPHERE (THREE.JS) ====================
+// A sophisticated, connected particle network with gold/bronze aesthetics
 
-(function initParticleSphere() {
+(function initRefinedParticles() {
     const canvas = document.getElementById('particleCanvas');
     if (!canvas) return;
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({ 
+        canvas, 
+        antialias: true, 
+        alpha: true,
+        powerPreference: "high-performance" 
+    });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0xf5f0eb, 1);  // warm cream background
+    renderer.setClearColor(0xf5f0eb, 1); // Maintain the warm cream background
 
-    // Create confetti-like particles using small planes
-    const PARTICLE_COUNT = 2500;
-    const radius = 3.2;
+    // Create a group to hold everything (for easier global animation/scale)
     const group = new THREE.Group();
+    scene.add(group);
 
-    // Gold color palette
-    const goldColors = [
-        new THREE.Color(0xC9A84C),  // dark gold
-        new THREE.Color(0xD4B95A),  // medium gold
-        new THREE.Color(0xE0CA68),  // light gold
-        new THREE.Color(0xB8943D),  // bronze
-        new THREE.Color(0xCFBE7A),  // pale gold
-        new THREE.Color(0xA88734),  // deep bronze
+    // --- Configuration ---
+    const PARTICLE_COUNT = 850;
+    const CONNECT_DISTANCE = 0.8;
+    const SPHERE_RADIUS = 3.5;
+    
+    // Gold/Bronze Color Palette
+    const colors = [
+        0xC9A84C, // Gold
+        0xD4B95A, // Light Gold
+        0xB8943D, // Bronze
+        0xCFBE7A  // Pale Gold
     ];
 
-    // Store particle data for animation
-    const particleData = [];
+    // --- Geometries ---
+    const particlesGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(PARTICLE_COUNT * 3);
+    const particleVelocities = [];
 
     for (let i = 0; i < PARTICLE_COUNT; i++) {
-        // Random position on sphere surface
+        // Distribute points on a sphere surface with some volume depth
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
-        const r = radius + (Math.random() - 0.5) * 0.8;
+        const r = SPHERE_RADIUS * (0.85 + Math.random() * 0.3);
 
         const x = r * Math.sin(phi) * Math.cos(theta);
         const y = r * Math.sin(phi) * Math.sin(theta);
         const z = r * Math.cos(phi);
 
-        // Small square geometry (confetti)
-        const size = 0.02 + Math.random() * 0.04;
-        const geo = new THREE.PlaneGeometry(size, size * (0.6 + Math.random() * 0.8));
-        const color = goldColors[Math.floor(Math.random() * goldColors.length)];
+        positions[i * 3] = x;
+        positions[i * 3 + 1] = y;
+        positions[i * 3 + 2] = z;
 
-        const mat = new THREE.MeshBasicMaterial({
-            color: color,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.5 + Math.random() * 0.45,
-        });
-
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x, y, z);
-
-        // Random initial rotation
-        mesh.rotation.set(
-            Math.random() * Math.PI * 2,
-            Math.random() * Math.PI * 2,
-            Math.random() * Math.PI * 2
-        );
-
-        group.add(mesh);
-
-        particleData.push({
-            mesh,
-            basePos: { x, y, z },
-            rotSpeed: {
-                x: (Math.random() - 0.5) * 0.02,
-                y: (Math.random() - 0.5) * 0.02,
-                z: (Math.random() - 0.5) * 0.02,
-            },
-            floatPhase: Math.random() * Math.PI * 2,
-            floatSpeed: 0.3 + Math.random() * 0.5,
-            floatAmp: 0.03 + Math.random() * 0.05,
-        });
+        // Velocity for drift animation
+        particleVelocities.push(new THREE.Vector3(
+            (Math.random() - 0.5) * 0.002,
+            (Math.random() - 0.5) * 0.002,
+            (Math.random() - 0.5) * 0.002
+        ));
     }
 
-    scene.add(group);
-    camera.position.z = 7;
+    particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
 
-    // Mouse interaction
+    // --- Helper: Create a glowy circle texture for premium nodes ---
+    const createNodeTexture = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64; canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(0.2, 'rgba(212, 185, 90, 0.8)');
+        grad.addColorStop(0.5, 'rgba(184, 148, 61, 0.2)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 64, 64);
+        const tex = new THREE.CanvasTexture(canvas);
+        return tex;
+    };
+
+    // --- Points (Nodes) ---
+    const pMaterial = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.12,
+        map: createNodeTexture(),
+        transparent: true,
+        opacity: 0.6,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false, 
+        sizeAttenuation: true
+    });
+    const points = new THREE.Points(particlesGeometry, pMaterial);
+    group.add(points);
+
+    // --- Lines (Connections) ---
+    const lineMaterial = new THREE.LineBasicMaterial({
+        color: 0xD4B95A,
+        transparent: true,
+        opacity: 0.22, // Slightly more visible
+        blending: THREE.NormalBlending 
+    });
+    const linesGeometry = new THREE.BufferGeometry();
+    const MAX_CONNECTIONS = PARTICLE_COUNT * 40; // Optimize buffer size
+    const linePositions = new Float32Array(MAX_CONNECTIONS * 6); 
+    linesGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3).setUsage(THREE.DynamicDrawUsage));
+    const connections = new THREE.LineSegments(linesGeometry, lineMaterial);
+    group.add(connections);
+
+    camera.position.z = 8;
+
+    // --- Interaction & State ---
     let mouseX = 0, mouseY = 0;
     let targetRotX = 0, targetRotY = 0;
+    let rotationSpeed = 0.0006;
+
     document.addEventListener('mousemove', (e) => {
         mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
         mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
     });
 
-    // Speed control
-    let rotationSpeed = 0.0008;
     window._setParticleSpeed = function(speed) { rotationSpeed = speed; };
+    window._particleGroup = group;
 
-    // Animation loop
-    function animate(time) {
+    // --- Animation Loop ---
+    function animate() {
         requestAnimationFrame(animate);
-        const t = time * 0.001;
 
-        // Slow sphere rotation
+        // 1. Automatic sphere rotation
         group.rotation.y += rotationSpeed;
-        group.rotation.x += rotationSpeed * 0.3;
+        group.rotation.x += rotationSpeed * 0.4;
 
-        // Smooth mouse follow
-        targetRotY += (mouseX * 0.3 - targetRotY) * 0.02;
-        targetRotX += (-mouseY * 0.2 - targetRotX) * 0.02;
-        group.rotation.y += targetRotY * 0.01;
-        group.rotation.x += targetRotX * 0.01;
+        // 2. Mouse parallax effect
+        targetRotY += (mouseX * 0.4 - targetRotY) * 0.03;
+        targetRotX += (-mouseY * 0.3 - targetRotX) * 0.03;
+        group.rotation.y += targetRotY * 0.012;
+        group.rotation.x += targetRotX * 0.012;
 
-        // Animate each particle (flutter effect)
-        for (let i = 0; i < particleData.length; i++) {
-            const pd = particleData[i];
-            const m = pd.mesh;
+        // 3. Update particle positions (drift + mouse repulsion)
+        const posAttr = particlesGeometry.attributes.position;
+        let lineIdx = 0;
 
-            // Gentle floating
-            const floatOffset = Math.sin(t * pd.floatSpeed + pd.floatPhase) * pd.floatAmp;
-            m.position.x = pd.basePos.x + floatOffset;
-            m.position.y = pd.basePos.y + Math.cos(t * pd.floatSpeed * 0.7 + pd.floatPhase) * pd.floatAmp;
-            m.position.z = pd.basePos.z + Math.sin(t * pd.floatSpeed * 0.5 + pd.floatPhase * 1.3) * pd.floatAmp;
+        // Mouse projected to 3D roughly
+        const mouseVec = new THREE.Vector3(mouseX * 4, -mouseY * 4, 0); 
 
-            // Tumble rotation (confetti flutter)
-            m.rotation.x += pd.rotSpeed.x;
-            m.rotation.y += pd.rotSpeed.y;
-            m.rotation.z += pd.rotSpeed.z;
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            const ix = i * 3, iy = i * 3 + 1, iz = i * 3 + 2;
+            
+            // 3.1 Velocity drift
+            const v = particleVelocities[i];
+            posAttr.array[ix] += v.x;
+            posAttr.array[iy] += v.y;
+            posAttr.array[iz] += v.z;
+
+            // 3.2 Mouse repulsion (Interactive!)
+            const pX = posAttr.array[ix], pY = posAttr.array[iy], pZ = posAttr.array[iz];
+            const distToMouse = Math.sqrt((pX - mouseVec.x)**2 + (pY - mouseVec.y)**2);
+            if (distToMouse < 1.5) {
+                const force = (1.5 - distToMouse) * 0.015;
+                posAttr.array[ix] += (pX - mouseVec.x) * force;
+                posAttr.array[iy] += (pY - mouseVec.y) * force;
+            }
+
+            // 3.3 Elastic return to sphere shell
+            const currentR = Math.sqrt(pX*pX + pY*pY + pZ*pZ);
+            const targetR = SPHERE_RADIUS;
+            const pull = (targetR - currentR) * 0.01;
+            posAttr.array[ix] += (pX/currentR) * pull;
+            posAttr.array[iy] += (pY/currentR) * pull;
+            posAttr.array[iz] += (pZ/currentR) * pull;
         }
+        posAttr.needsUpdate = true;
+
+        // 4. Update connections (Line segments)
+        // Optimization: only connect nearby points
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            for (let j = i + 1; j < PARTICLE_COUNT; j++) {
+                const dx = posAttr.array[i * 3] - posAttr.array[j * 3];
+                const dy = posAttr.array[i * 3 + 1] - posAttr.array[j * 3 + 1];
+                const dz = posAttr.array[i * 3 + 2] - posAttr.array[j * 3 + 2];
+                const distSq = dx*dx + dy*dy + dz*dz;
+
+                if (distSq < CONNECT_DISTANCE * CONNECT_DISTANCE) {
+                    linePositions[lineIdx++] = posAttr.array[i * 3];
+                    linePositions[lineIdx++] = posAttr.array[i * 3 + 1];
+                    linePositions[lineIdx++] = posAttr.array[i * 3 + 2];
+
+                    linePositions[lineIdx++] = posAttr.array[j * 3];
+                    linePositions[lineIdx++] = posAttr.array[j * 3 + 1];
+                    linePositions[lineIdx++] = posAttr.array[j * 3 + 2];
+                }
+                
+                // Safety break to prevent buffer overflow (unlikely with this count)
+                if (lineIdx > linePositions.length - 6) break;
+            }
+        }
+        connections.geometry.setDrawRange(0, lineIdx / 3);
+        connections.geometry.attributes.position.needsUpdate = true;
 
         renderer.render(scene, camera);
     }
-    animate(0);
 
-    // Make group accessible for external animations
-    window._particleGroup = group;
-    
-    // Resize
+    animate();
+
+    // Resize Handler
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();

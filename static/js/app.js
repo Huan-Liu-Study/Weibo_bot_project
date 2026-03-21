@@ -22,7 +22,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.add('active');
         const panel = document.getElementById('tab-' + tab);
         if (panel) panel.classList.add('active');
-        
+
         if (tab === 'history') {
             fetchHistory();
         }
@@ -41,10 +41,10 @@ if (depthSlider) {
 
 // ==================== TOPIC DETECTION ====================
 
-let _lastCrawlTopic = ''; 
-let _allSuspects = [];   
-let _suspectPage = 1;    
-const _suspectPageSize = 5; 
+let _lastCrawlTopic = '';
+let _allSuspects = [];
+let _suspectPage = 1;
+const _suspectPageSize = 5;
 
 const topicBtn = document.getElementById('topicBtn');
 
@@ -68,21 +68,21 @@ if (topicBtn) {
         topicBtn.disabled = true;
         topicBtn.querySelector('.btn-text').style.display = 'none';
         topicBtn.querySelector('.btn-loading').style.display = 'flex';
-        
+
         const progressArea = document.getElementById('topicProgress');
         const progressFill = document.getElementById('progressFill');
         const progressStatus = document.getElementById('progressStatus');
         const progressTime = document.getElementById('progressTime');
         const resultsArea = document.getElementById('topicResults');
-        
+
         resultsArea.style.display = 'none';
         progressArea.style.display = 'block';
         progressFill.style.width = '0%';
         progressStatus.textContent = '初始化组件中...';
-        
+
         let timeLeft = Math.ceil(depth * 2.2 + 8);
         progressTime.textContent = `预计剩余: ${timeLeft}秒`;
-        
+
         if (window._setParticleSpeed) window._setParticleSpeed(0.008);
 
         let progressPercent = 0;
@@ -90,12 +90,12 @@ if (topicBtn) {
             if (timeLeft > 0) {
                 timeLeft--;
                 progressTime.textContent = `预计剩余: ${timeLeft}秒`;
-                
+
                 if (progressPercent < 90) {
                     progressPercent += (90 - progressPercent) * 0.05;
                     progressFill.style.width = progressPercent + '%';
                 }
-                
+
                 if (timeLeft % 5 === 0) {
                     const statuses = ['正在下发采集任务...', '绕过微博反爬验证...', '模型正在实时特征提取...', '计算社交网络相似度...', '解析账号行为特征...'];
                     progressStatus.textContent = statuses[Math.floor(Math.random() * statuses.length)];
@@ -182,7 +182,7 @@ function renderTopicResults(data, crawlInfo) {
     if (window.renderRadarChart && data.radar_metrics && data.radar_metrics.humans && data.radar_metrics.bots) {
         window.renderRadarChart('radarChart', data.radar_metrics.humans, data.radar_metrics.bots);
     }
-    
+
     if (window.renderScatterChart && data.all_nodes && data.all_nodes.length > 0) {
         window.renderScatterChart(data.all_nodes);
     }
@@ -198,14 +198,14 @@ function renderTopicResults(data, crawlInfo) {
 function openNodeModal(node) {
     const modal = document.getElementById('nodeModal');
     if (!modal) return;
-    
+
     const name = node.name || 'UID:' + node.user_id;
     const score = (node.suspicion_score * 100).toFixed(0);
-    
+
     document.getElementById('nmAvatar').textContent = name.substring(0, 1).toUpperCase();
     document.getElementById('nmName').textContent = name;
     document.getElementById('nmMeta').textContent = `UID: ${node.user_id} | 粉丝: ${node.followers_count} | 发帖: ${node.statuses_count}`;
-    
+
     const scoreEl = document.getElementById('nmScore');
     scoreEl.textContent = `${score}%`;
     scoreEl.className = 'suspect-score ' + (score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low');
@@ -219,9 +219,9 @@ function openNodeModal(node) {
         scoreEl.style.color = '#7cb87a';
         scoreEl.style.backgroundColor = 'rgba(124, 184, 122, 0.12)';
     }
-    
+
     document.getElementById('nmText').innerHTML = escapeHtml(node.text).replace(/\n/g, '<br>');
-    
+
     const reasonsUl = document.getElementById('nmReasons');
     if (node.reasons && node.reasons.length > 0) {
         reasonsUl.innerHTML = node.reasons.map(r => {
@@ -233,12 +233,12 @@ function openNodeModal(node) {
     } else {
         reasonsUl.innerHTML = `<li class="flag-low">该账号行为正常，特征处于健康区间。</li>`;
     }
-    
+
     modal.style.display = 'flex';
     setTimeout(() => {
         modal.classList.add('active');
     }, 10);
-    document.body.style.overflow = 'hidden'; 
+    document.body.style.overflow = 'hidden';
 }
 
 window.openNodeModal = openNodeModal;
@@ -253,6 +253,60 @@ document.addEventListener('DOMContentLoaded', () => {
     const nextBtn = document.getElementById('nextSuspectBtn');
     if (prevBtn) prevBtn.addEventListener('click', () => goToSuspectPage(_suspectPage - 1));
     if (nextBtn) nextBtn.addEventListener('click', () => goToSuspectPage(_suspectPage + 1));
+
+    // --- Deep Scroll Transition & Parallax Logic ---
+    const hero = document.getElementById('hero');
+    const appEl = document.getElementById('app');
+    const heroContent = document.getElementById('heroContent');
+    const scrollHint = document.querySelector('.hero-scroll-hint');
+
+    if (scrollHint) {
+        scrollHint.addEventListener('click', () => {
+            window.scrollTo({ top: window.innerHeight * 0.8, behavior: 'smooth' });
+        });
+    }
+
+    // Interactive 3D Parallax tracking on Hero
+    if (hero && heroContent) {
+        document.addEventListener('mousemove', (e) => {
+            if (window.scrollY > window.innerHeight) return; // Prevent calc offscreen
+            const rX = (window.innerHeight / 2 - e.clientY) / 45;
+            const rY = (e.clientX - window.innerWidth / 2) / 45;
+            heroContent.style.setProperty('--rot-x', `${rX}deg`);
+            heroContent.style.setProperty('--rot-y', `${rY}deg`);
+        });
+    }
+
+    window.addEventListener('scroll', () => {
+        const scrolled = window.scrollY;
+        const vh = window.innerHeight;
+        const progress = Math.min(scrolled / (vh * 0.8), 1);
+
+        // 1. Sync Particle Sphere (3D Parallax/Zoom)
+        if (window._particleGroup && window.gsap) {
+            const scaleVal = 1 + progress * 2.8; // Slightly more zoom
+            window._particleGroup.scale.set(scaleVal, scaleVal, scaleVal);
+            window._particleGroup.position.z = -progress * 8; // Deeper depth
+        }
+
+        // 2. Hero Content Fade & Slide
+        if (heroContent) {
+            heroContent.style.opacity = Math.max(0, 1 - progress * 1.2);
+            heroContent.style.setProperty('--scroll-y', `${-progress * 150}px`);
+        }
+
+        // 3. Reveal App Dashboard
+        if (progress > 0.4) {
+            appEl.classList.add('revealed');
+        } else {
+            appEl.classList.remove('revealed');
+        }
+
+        // 4. Hide scroll hint early
+        if (scrollHint) {
+            scrollHint.style.opacity = 1 - progress * 4;
+        }
+    });
 });
 
 
@@ -282,7 +336,7 @@ function goToSuspectPage(page) {
 
     const container = document.getElementById('suspectList');
     const pagination = document.getElementById('suspectPagination');
-    
+
     if (_allSuspects.length === 0) {
         container.innerHTML = `<div class="empty-hint">暂未发现明显的水军账号特征。</div>`;
         pagination.style.display = 'none';
@@ -303,7 +357,7 @@ function goToSuspectPage(page) {
         const name = s.用户昵称 || s.screen_name;
         const textPreview = s.微博正文 ? `"${escapeHtml(s.微博正文).substring(0, 40)}${s.微博正文.length > 40 ? '...' : ''}"` : '';
         const level = score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';
-        
+
         const reasonsHtml = s.reasons.map(r => {
             let cls = r.level === 'high' ? 'flag-high' : r.level === 'medium' ? 'flag-medium' : 'flag-low';
             if (r.is_red_flag) cls += ' red-flag';
@@ -318,7 +372,7 @@ function goToSuspectPage(page) {
                     <div class="suspect-info">
                         <div class="suspect-name">${escapeHtml(name)}</div>
                         <div class="suspect-text-mini">${textPreview}</div>
-                        <div class="suspect-meta-mini">粉丝 ${s.followers_count || 0} | 发帖 ${s.statuses_count || 0}</div>
+                        <div class="suspect-meta-mini">UID: ${s.user_id || '未知'} | 粉丝 ${s.followers_count || 0} | 发帖 ${s.statuses_count || 0}</div>
                     </div>
                     <div class="suspect-arrow">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
@@ -333,7 +387,7 @@ function goToSuspectPage(page) {
 }
 
 
-window.toggleSuspect = function(element) {
+window.toggleSuspect = function (element) {
     const card = element.closest('.suspect-card');
     if (!card) return;
     const isCollapsed = card.classList.contains('collapsed');
@@ -432,7 +486,7 @@ function renderReasons(reasons) {
     const closeInfo = document.getElementById('closeInfo');
     const infoOverlay = document.getElementById('infoOverlay');
     const overlayBackdrop = infoOverlay.querySelector('.overlay-backdrop');
-    
+
     if (!infoTrigger || !infoOverlay) return;
 
     let isOpen = false;
@@ -444,7 +498,7 @@ function renderReasons(reasons) {
 
         if (show) {
             infoOverlay.style.display = 'flex';
-            
+
             // 动态加载并渲染 Markdown 文档
             if (!mdLoaded && window.marked) {
                 try {
@@ -459,7 +513,7 @@ function renderReasons(reasons) {
                         const container = document.getElementById('guideContent');
                         if (container) container.innerHTML = '<p style="text-align:center;">无法加载文档说明。</p>';
                     }
-                } catch(e) {
+                } catch (e) {
                     console.error('Failed to load markdown guide:', e);
                 }
             }
@@ -485,8 +539,8 @@ function renderReasons(reasons) {
         } else {
             infoOverlay.classList.remove('active');
             setTimeout(() => {
-                if (isOpen) return; 
-                
+                if (isOpen) return;
+
                 if (window._particleGroup && window.gsap) {
                     window.gsap.to(window._particleGroup.scale, {
                         x: 1, y: 1, z: 1,
@@ -505,14 +559,14 @@ function renderReasons(reasons) {
                 } else {
                     infoOverlay.style.display = 'none';
                 }
-            }, 400); 
+            }, 400);
         }
     };
 
     infoTrigger.addEventListener('click', () => toggleInfo(true));
     closeInfo.addEventListener('click', () => toggleInfo(false));
     overlayBackdrop.addEventListener('click', () => toggleInfo(false));
-    
+
     window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && isOpen) toggleInfo(false);
     });
@@ -523,7 +577,7 @@ function renderReasons(reasons) {
 async function fetchHistory() {
     const list = document.getElementById('historyList');
     if (!list) return;
-    
+
     try {
         const data = await window.api.getHistoryList();
         renderHistory(data.topics);
@@ -543,7 +597,7 @@ function renderHistory(topics) {
         `;
         return;
     }
-    
+
     list.innerHTML = topics.map((t, i) => {
         const date = new Date(t.last_updated).toLocaleString();
         return `
@@ -568,7 +622,7 @@ function renderHistory(topics) {
             </div>
         `;
     }).join('');
-    
+
     window._historyTopics = topics;
     list.querySelectorAll('[data-action="load"]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -588,7 +642,7 @@ async function loadHistoryTopic(topic) {
     document.querySelector('[data-tab="topic"]').click();
     const input = document.getElementById('topicInput');
     if (input) input.value = topic;
-    
+
     document.getElementById('topicResults').style.display = 'none';
     document.getElementById('topicProgress').style.display = 'block';
     document.getElementById('progressStatus').textContent = '正在从本地数据库调取历史全景...';
@@ -596,13 +650,13 @@ async function loadHistoryTopic(topic) {
 
     try {
         const data = await window.api.detectTopic(topic, 0, false, 'load');
-        
+
         setTimeout(() => {
             _lastCrawlTopic = topic;
-            
+
             document.getElementById('topicProgress').style.display = 'none';
             renderTopicResults(data, data.crawl_info);
-            
+
             if (data.wordclouds && window.renderWordClouds) window.renderWordClouds(data.wordclouds);
             if (data.all_nodes && window.renderScatterChart) window.renderScatterChart(data.all_nodes);
         }, 300);
@@ -615,10 +669,10 @@ async function loadHistoryTopic(topic) {
 
 async function deleteHistoryTopic(topic) {
     if (!confirm(`确定要删除话题 “${topic}” 的所有本地数据吗？此操作不可撤销。`)) return;
-    
+
     try {
         await window.api.deleteTopic(topic);
-        fetchHistory(); 
+        fetchHistory();
     } catch (err) {
         alert('删除失败: ' + err.message);
     }
@@ -631,7 +685,7 @@ async function deleteHistoryTopic(topic) {
         document.getElementById('cookieGuideContainerUser')
     ];
     if (!containers.some(c => c)) return;
-    
+
     try {
         const res = await fetch('/static/docs/cookie_guide.md');
         if (res.ok) {
@@ -653,7 +707,7 @@ async function deleteHistoryTopic(topic) {
                 if (container) container.innerHTML = '<p>无法加载说明文档。</p>';
             });
         }
-    } catch(e) {
+    } catch (e) {
         console.error('Failed to load cookie guide:', e);
     }
 

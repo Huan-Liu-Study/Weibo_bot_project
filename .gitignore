@@ -35,3 +35,6 @@ venv_weibo/
 .ipynb_checkpoints/
 .DS_Store
 .gemini/
+
+topic_cache.db
+weibo_bot.log

@@ -5,12 +5,18 @@ function renderPieChart(humans, bots, news) {
     if (!chartDom) return;
     const chart = echarts.init(chartDom);
     chart.setOption({
-        tooltip: { trigger: 'item', backgroundColor: '#fff', borderColor: '#e8e0d4', textStyle: { color: '#2c2418' } },
+        tooltip: { 
+            trigger: 'item', 
+            backgroundColor: 'rgba(255, 255, 255, 0.9)', 
+            borderColor: '#e8e0d4', 
+            textStyle: { color: '#2c2418' },
+            backdropFilter: 'blur(4px)'
+        },
         legend: { bottom: 10, textStyle: { color: '#8a7e6b' } },
         series: [{
             type: 'pie',
             radius: ['45%', '70%'],
-            itemStyle: { borderRadius: 6, borderColor: '#f5f0eb', borderWidth: 3 },
+            itemStyle: { borderRadius: 6, borderColor: 'rgba(255,255,255,0.4)', borderWidth: 2 },
             label: { show: true, color: '#2c2418', formatter: '{b}\n{d}%' },
             data: [
                 { value: humans, name: '正常用户', itemStyle: { color: '#7cb87a' } },
@@ -41,14 +47,19 @@ function renderRadarChart(containerId, humansData, botsData) {
 
     const chart = echarts.init(chartDom);
     chart.setOption({
-        tooltip: { backgroundColor: '#fff', borderColor: '#e8e0d4', textStyle: { color: '#2c2418' } },
+        tooltip: { 
+            backgroundColor: 'rgba(255, 255, 255, 0.9)', 
+            borderColor: '#e8e0d4', 
+            textStyle: { color: '#2c2418' },
+            backdropFilter: 'blur(4px)'
+        },
         legend: { bottom: 5, textStyle: { color: '#8a7e6b' }, data: ['正常用户', '疑似水军'] },
         radar: {
             indicator: indicators,
             axisName: { color: '#8a7e6b', fontSize: 11 },
-            splitArea: { areaStyle: { color: ['transparent'] } },
-            axisLine: { lineStyle: { color: '#e8e0d4' } },
-            splitLine: { lineStyle: { color: '#e8e0d4' } }
+            splitArea: { show: false },
+            axisLine: { lineStyle: { color: 'rgba(184, 148, 61, 0.2)' } },
+            splitLine: { lineStyle: { color: 'rgba(184, 148, 61, 0.1)' } }
         },
         series: [{
             type: 'radar',

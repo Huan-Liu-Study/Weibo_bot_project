@@ -23,9 +23,14 @@
 </head>
 
 <body>
+    <div id="scrollProgress"></div>
+    <canvas id="particleCanvas"></canvas>
     <section id="hero">
-        <canvas id="particleCanvas"></canvas>
-        <div class="hero-content">
+        <div class="hero-content" id="heroContent">
+            <div class="hero-badges">
+                <div class="hero-badge badge-left">行为指纹识别</div>
+                <div class="hero-badge badge-right">实时动态监测</div>
+            </div>
             <h1 class="hero-title">
                 <span class="title-line title-top">WEIBO</span>
                 <span class="title-line title-bottom">BOT SHIELD</span>
@@ -110,10 +115,13 @@
                     </div>
                     <div class="input-options" style="margin-top:8px;">
                         <details style="width:100%;" open>
-                            <summary style="cursor:pointer;font-size:0.85rem;color:var(--text);user-select:none; font-weight:600;">
-                                🔑 必填：微博身份验证 (Cookie) <span style="font-size:0.75rem; color:#43a047; font-weight:normal; margin-left:5px;">(支持与另一页面双向实时同步)</span>
+                            <summary
+                                style="cursor:pointer;font-size:0.85rem;color:var(--text);user-select:none; font-weight:600;">
+                                🔑 必填：微博身份验证 (Cookie) <span
+                                    style="font-size:0.75rem; color:#43a047; font-weight:normal; margin-left:5px;">(支持与另一页面双向实时同步)</span>
                             </summary>
-                            <div id="cookieGuideContainer" class="markdown-body" style="margin-top:8px; font-size:0.75rem; color:var(--text-dim); line-height:1.6; background: rgba(0,0,0,0.15); padding: 10px 15px; border-radius: 6px; border-left: 3px solid #d4af37; background-color: transparent !important;">
+                            <div id="cookieGuideContainer" class="markdown-body"
+                                style="margin-top:8px; font-size:0.75rem; color:var(--text-dim); line-height:1.6; background: rgba(0,0,0,0.15); padding: 10px 15px; border-radius: 6px; border-left: 3px solid #d4af37; background-color: transparent !important;">
                                 <p style="margin:0;">正在加载 Cookie 配置说明...</p>
                             </div>
                             <input type="text" id="cookieInput" placeholder="在此处粘贴完整 Cookie（如：SUB=xxx; SUBP=xxx...）"
@@ -247,13 +255,17 @@
         <section id="tab-user" class="tab-panel">
             <div class="input-section">
                 <div class="input-group">
-                    <input type="text" id="uidInput" placeholder="输入微博用户 UID（纯数字），如：1234567890" spellcheck="false" style="margin-bottom: 8px;">
+                    <input type="text" id="uidInput" placeholder="输入微博用户 UID（纯数字），如：1234567890" spellcheck="false"
+                        style="margin-bottom: 8px;">
                     <div class="input-options" style="margin-top:8px;">
                         <details style="width:100%;" open>
-                            <summary style="cursor:pointer;font-size:0.85rem;color:var(--text);user-select:none; font-weight:600;">
-                                🔑 必填：微博身份验证 (Cookie) <span style="font-size:0.75rem; color:#43a047; font-weight:normal; margin-left:5px;">(支持与另一页面双向实时同步)</span>
+                            <summary
+                                style="cursor:pointer;font-size:0.85rem;color:var(--text);user-select:none; font-weight:600;">
+                                🔑 必填：微博身份验证 (Cookie) <span
+                                    style="font-size:0.75rem; color:#43a047; font-weight:normal; margin-left:5px;">(支持与另一页面双向实时同步)</span>
                             </summary>
-                            <div id="cookieGuideContainerUser" class="markdown-body" style="margin-top:8px; font-size:0.75rem; color:var(--text-dim); line-height:1.6; background: rgba(0,0,0,0.15); padding: 10px 15px; border-radius: 6px; border-left: 3px solid #d4af37; background-color: transparent !important;">
+                            <div id="cookieGuideContainerUser" class="markdown-body"
+                                style="margin-top:8px; font-size:0.75rem; color:var(--text-dim); line-height:1.6; background: rgba(0,0,0,0.15); padding: 10px 15px; border-radius: 6px; border-left: 3px solid #d4af37; background-color: transparent !important;">
                                 <p style="margin:0;">正在加载 Cookie 配置说明...</p>
                             </div>
                             <input type="text" id="cookieInputUser" placeholder="在此处粘贴完整 Cookie（如：SUB=xxx; SUBP=xxx...）"
