@@ -1,26 +1,36 @@
-# Python 临时文件
+# =======================================================
+# Weibo Bot Shield Project .gitignore
+# =======================================================
+
+# 1. 核心数据与日志 (安全与隐私)
+topic_cache.db
+*.log
+weibo_bot.log
+
+# 2. 爬虫数据输出目录
+weibo-search/结果文件/
+*.csv
+# 保留测试和打标用的金库数据集（如果你想传的话）
+!golden_testset_labeled.csv
+!golden_testset_15features.csv
+
+# 3. 配置文件 (包含真实 Cookie，绝对不传！)
+weibo-search/weibo/settings.py
+
+# 4. 模型文件 (体积太大，通常不传，视情况可单独强制上传 *.pkl)
+*.pkl
+
+# 5. Python 环境与缓存
 __pycache__/
 *.py[cod]
 *$py.class
 venv/
+venv_weibo/
 .env
 
-# 数据文件 (如果你不想把几百MB的原始数据传上去，可以保留，只传代码)
-weibo-search/结果文件/
-*.csv
-!golden_testset_labeled.csv  # 唯独保留我们的金库
-
-# 微博 Cookie 和配置文件 (保护你的隐私)
-# 建议手动在 settings.py 里把 cookie 删掉再上传，
-# 或者把整个 settings 排除。目前为了安全我先帮你排除设置文件夹。
-weibo-search/weibo/settings.py
-
-# 模型文件 (如果太大可以不传，或者传上去方便演示)
-# *.pkl
-
-# VS Code 配置文件
+# 6. IDE 与系统隐藏文件
 .vscode/
-
-# 其他缓存
+.idea/
 .ipynb_checkpoints/
+.DS_Store
 .gemini/
