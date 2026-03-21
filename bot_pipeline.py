@@ -68,6 +68,7 @@ def run_pipeline(topic, limit=20, continue_mode=False, cookie=None):
         subprocess.run(
             scrapy_cmd,
             cwd="weibo-search", 
+            env=env,
             check=True, 
             capture_output=True, 
             text=True,
