@@ -4,6 +4,7 @@ import traceback
 import topic_db
 
 from response_builder import build_topic_response, analyze_single_user
+from logger import logger
 
 app = Flask(__name__)
 
@@ -46,6 +47,7 @@ def detect_bots():
     limit = int(data.get('limit', 15))
     continue_mode = bool(data.get('continue', False))
     action = data.get('action', 'fetch')  # 'fetch' or 'load'
+    cookie = data.get('cookie', '')  # 用户自带 Cookie（可选）
 
     if not topic:
         return jsonify({"error": "请输入有效的微博话题或关键词"}), 400
@@ -58,7 +60,7 @@ def detect_bots():
             meta = topic_db.get_topic_meta(topic)
             crawl_info = {'new_fetched': 0, 'total_fetched': meta['total_fetched'], 'has_more': True}
         else:
-            df, crawl_info = run_pipeline(topic, limit, continue_mode=continue_mode)
+            df, crawl_info = run_pipeline(topic, limit, continue_mode=continue_mode, cookie=cookie)
             
         if df.empty and action != 'load':
             return jsonify({"error": "未获取到任何数据，可能是被反爬或数据为空。"})
@@ -67,6 +69,7 @@ def detect_bots():
         response['crawl_info'] = crawl_info
         return jsonify(response)
     except Exception as e:
+        logger.exception(f"话题检测接口执行失败: {topic}")
         tb = traceback.format_exc()
         return jsonify({"error": f"执行失败: {str(e)}\n\nTRACEBACK:\n{tb}"}), 500
 
@@ -84,7 +87,7 @@ def check_user():
         result = analyze_single_user(uid)
         return jsonify(result)
     except Exception as e:
-        traceback.print_exc()
+        logger.exception(f"单账号分析失败 UID={uid}")
         return jsonify({"error": f"分析失败: {str(e)}"}), 500
 
 

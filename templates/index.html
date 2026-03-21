@@ -221,6 +221,12 @@
                         <label>采样深度：<strong id="depthVal">20</strong></label>
                         <input type="range" id="depthSlider" min="10" max="300" value="20" step="5">
                     </div>
+                    <div class="input-options" style="margin-top:8px;">
+                        <details style="width:100%;">
+                            <summary style="cursor:pointer;font-size:0.82rem;color:var(--text-dim);user-select:none;">🔑 手动注入 Cookie（可选，不填则使用默认）</summary>
+                            <input type="text" id="cookieInput" placeholder="粘贴您的微博 Cookie（SUB=xxx; ...）" spellcheck="false" style="margin-top:6px;font-size:0.8rem;padding:8px 12px;width:100%;box-sizing:border-box;border-radius:8px;border:1px solid var(--border);background:var(--glass);color:var(--text);">
+                        </details>
+                    </div>
                 </div>
                 <button id="topicBtn" class="primary-btn">
                     <span class="btn-text">启动检测</span>

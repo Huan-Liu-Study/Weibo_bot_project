@@ -5,11 +5,11 @@
  */
 
 const api = {
-    detectTopic: async (topic, limit, isContinue, action = 'fetch') => {
+    detectTopic: async (topic, limit, isContinue, action = 'fetch', cookie = '') => {
         const res = await fetch('/api/detect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ topic, limit, continue: isContinue, action })
+            body: JSON.stringify({ topic, limit, continue: isContinue, action, cookie })
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error);

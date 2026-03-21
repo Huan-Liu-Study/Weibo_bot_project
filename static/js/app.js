@@ -54,6 +54,8 @@ if (topicBtn) {
         if (!topic) { alert('请输入话题关键词'); return; }
 
         const depth = parseInt(depthSlider.value);
+        const cookieEl = document.getElementById('cookieInput');
+        const cookie = cookieEl ? cookieEl.value.trim() : '';
 
         // UI: loading state
         topicBtn.disabled = true;
@@ -95,7 +97,7 @@ if (topicBtn) {
         }, 1000);
 
         try {
-            const data = await window.api.detectTopic(topic, depth, _lastCrawlTopic === topic);
+            const data = await window.api.detectTopic(topic, depth, _lastCrawlTopic === topic, 'fetch', cookie);
             _lastCrawlTopic = topic;
             window._lastCrawlDepth = depth;
 

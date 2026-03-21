@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import re
+from logger import logger
 
 async def fetch_user_profile_and_timeline(session, uid, headers):
     """
@@ -44,7 +45,7 @@ async def fetch_user_profile_and_timeline(session, uid, headers):
                         if k not in ['uid', 'recent_post_times', 'recent_texts', 'recent_engagements', 'recent_topics']:
                             result[k] = u.get(k, result[k])
     except Exception as e:
-        print(f"  [!] fetch profile failed {uid}: {e}")
+        logger.warning(f"  [!] fetch profile failed {uid}: {e}")
 
     # 2. 获取近期发帖列表 (用于时序特征与互动特征)
     url_timeline = f'https://weibo.com/ajax/statuses/mymblog?uid={uid}&page=1&feature=0'
@@ -94,7 +95,7 @@ async def fetch_user_profile_and_timeline(session, uid, headers):
                     result['recent_topics'] = topics_list
                     result['recent_texts'] = text_list
     except Exception as e:
-        print(f"  [!] fetch timeline failed {uid}: {e}")
+        logger.warning(f"  [!] fetch timeline failed {uid}: {e}")
 
     return result
 

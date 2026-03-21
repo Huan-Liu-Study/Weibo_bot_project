@@ -27,12 +27,11 @@ RED_FLAG_MIN_SCORE = 0.55
 _OFFICIAL_MEDIA_KEYWORDS = [
     '新闻', '媒体', '报社', '电视台', '日报', '晚报',
     '广播', '通讯社', '新华', '央视', '人民', '环球',
-    '纵览', '头条','党建', '商报', '资讯', '播报', 
-    '报道', '发布', '发布厅', '周刊', '官微', '政务',
-    '官方', '官方微博', '客户端', '报', '网', '电台', '观察', '中心', '工作室', '频道'
+    '纵览', '头条', '党建', '商报',   '播报', '发布', 
+    '发布厅', '周刊', '官微', '政务', '电台', '融媒体', '时报'
 ]
 
-_AUTH_KEYWORDS = ['蓝v', '企业认证', '机构认证', '媒体认证', '政府认证', '官方认证']
+_AUTH_KEYWORDS = ['蓝v', '企业认证', '媒体认证', '政府认证']
 
 # ===================== 核心函数 =====================
 
@@ -153,7 +152,7 @@ def apply_red_flags(row_score, row):
     return row_score
 
 
-def compute_final_score(features_dict, model_prob, row):
+def compute_final_score(features_dict, model_prob, row, model_available=True):
     """
     统一融合评分入口。
 
@@ -165,6 +164,8 @@ def compute_final_score(features_dict, model_prob, row):
         模型 predict_proba 的正类概率 (0~1)
     row : dict
         包含 verified_reason 等元数据的原始行 (用于媒体豁免)
+    model_available : bool
+        若模型加载失败，将仅使用规则分 (Fallback)
 
     Returns
     -------
@@ -172,8 +173,11 @@ def compute_final_score(features_dict, model_prob, row):
     """
     rule_score = calc_rule_score(features_dict)
 
-    # 80% 模型 + 20% 规则
-    fused = 0.2 * rule_score + 0.8 * model_prob
+    # 80% 模型 + 20% 规则 (若模型不可用则 100% 规则)
+    if model_available:
+        fused = 0.2 * rule_score + 0.8 * model_prob
+    else:
+        fused = rule_score
 
     # 红旗否决
     fused = apply_red_flags(fused, features_dict)

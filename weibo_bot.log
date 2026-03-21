@@ -1,0 +1,22 @@
+[2026-03-20 19:53:06] [INFO] [<string>:1] - Logging system integration test successful
+[2026-03-20 19:57:40] [ERROR] [server.py:71] - 话题检测接口执行失败: 直播间买10盒蓝莓到手每盒不足5颗
+Traceback (most recent call last):
+  File "D:\Folders\Desktop\软件毕设\Weibo_bot_project\server.py", line 62, in detect_bots
+    df, crawl_info = run_pipeline(topic, limit, continue_mode=continue_mode)
+                     ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Folders\Desktop\软件毕设\Weibo_bot_project\bot_pipeline.py", line 165, in run_pipeline
+    from label_existing_data import calc_sentiment
+ModuleNotFoundError: No module named 'label_existing_data'
+[2026-03-20 19:59:52] [WARNING] [weibo_api.py:48] -   [!] fetch profile failed 1712686623: 
+[2026-03-20 19:59:55] [ERROR] [server.py:71] - 话题检测接口执行失败: 直播间买10盒蓝莓到手每盒不足5颗
+Traceback (most recent call last):
+  File "D:\Folders\Desktop\软件毕设\Weibo_bot_project\server.py", line 62, in detect_bots
+    df, crawl_info = run_pipeline(topic, limit, continue_mode=continue_mode)
+                     ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Folders\Desktop\软件毕设\Weibo_bot_project\bot_pipeline.py", line 165, in run_pipeline
+    from features import calc_sentiment
+ModuleNotFoundError: No module named 'label_existing_data'
+[2026-03-20 20:26:10] [INFO] [bot_pipeline.py:94] - 去重后新增 0 条 (原始 0 条新, 已有 70 条)
+[2026-03-20 21:01:17] [INFO] [bot_pipeline.py:94] - 去重后新增 0 条 (原始 0 条新, 已有 70 条)
+[2026-03-20 21:01:59] [INFO] [bot_pipeline.py:94] - 去重后新增 0 条 (原始 0 条新, 已有 70 条)
+[2026-03-20 21:23:49] [INFO] [bot_pipeline.py:94] - 去重后新增 0 条 (原始 0 条新, 已有 3 条)

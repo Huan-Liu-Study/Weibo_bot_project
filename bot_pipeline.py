@@ -14,6 +14,7 @@ import aiohttp
 # when Flask debug reloader double-imports this module
 from datetime import datetime
 import topic_db
+from logger import logger
 
 
 def _load_cookie_from_settings():
@@ -24,11 +25,10 @@ def _load_cookie_from_settings():
 from weibo_api import fetch_all_users_info
 
 
-def run_pipeline(topic, limit=20, continue_mode=False):
-    # 1. 自动覆写 Scrapy 爬虫的内部配置文件
-    settings_path = 'weibo-search/weibo/settings.py'
-    with open(settings_path, 'r', encoding='utf-8') as f:
-        content = f.read()
+def run_pipeline(topic, limit=20, continue_mode=False, cookie=None):
+    # 如果前端未传 Cookie，则回退读取 settings.py 中的默认值
+    if not cookie:
+        cookie = _load_cookie_from_settings()
 
     # v1.7.0: 续爬时 Scrapy 的 LIMIT 必须等于已爬取量 + 本次目标新增量
     existing_meta = topic_db.get_topic_meta(topic)
@@ -39,30 +39,29 @@ def run_pipeline(topic, limit=20, continue_mode=False):
         topic_db.clear_topic(topic)
         fetch_limit = limit
 
-    content = re.sub(r"KEYWORD_LIST = \[.*?\]", f"KEYWORD_LIST = ['{topic}']", content)
-    content = re.sub(r"LIMIT_RESULT = \d+", f"LIMIT_RESULT = {fetch_limit}", content)
-    # 稍微增加延迟或者保持1，用以避开418屏蔽
-    content = re.sub(r"DOWNLOAD_DELAY = \d+", "DOWNLOAD_DELAY = 1", content)
-
     # 动态设置日期范围：最近7天到今天
     from datetime import datetime, timedelta
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-    content = re.sub(r"START_DATE = '.*?'", f"START_DATE = '{start_date}'", content)
-    content = re.sub(r"END_DATE = '.*?'", f"END_DATE = '{end_date}'", content)
-
-    with open(settings_path, 'w', encoding='utf-8') as f:
-        f.write(content)
 
     csv_path = f'weibo-search/结果文件/{topic}/{topic}.csv'
     # 每次跑之前清理上一次的历史遗留数据
     if os.path.exists(csv_path):
         os.remove(csv_path)
 
-    # 2. 从 Python 子进程内部唤醒终端自动执行 Scrapy
+    # 2. 通过命令行参数启动 Scrapy（彻底消除文件覆写竞态条件）
+    scrapy_cmd = [
+        "python", "-m", "scrapy", "crawl", "search",
+        "-a", f"keyword={topic}",
+        "-a", f"limit_result={fetch_limit}",
+        "-a", f"start_date={start_date}",
+        "-a", f"end_date={end_date}",
+        "-a", f"custom_cookie={cookie}",
+        "-s", "LOG_LEVEL=WARNING",
+    ]
     try:
         subprocess.run(
-            ["python", "-m", "scrapy", "crawl", "search"], 
+            scrapy_cmd,
             cwd="weibo-search", 
             check=True, 
             capture_output=True, 
@@ -76,7 +75,7 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     # 3. 读取刚落地热乎的 CSV，然后顺手并行提取那些账户的主页信息
     if not os.path.exists(csv_path):
         # 爬虫未报错，但未生成文件，说明搜索结果为 0 条
-        print(f"[INFO] 话题 '{topic}' 未获取到任何微博数据。")
+        logger.info(f"话题 '{topic}' 未获取到任何微博数据。")
         return pd.DataFrame(), {'new_fetched': 0, 'total_fetched': existing_meta['total_fetched'], 'has_more': False}
 
     df = pd.read_csv(csv_path)
@@ -90,7 +89,7 @@ def run_pipeline(topic, limit=20, continue_mode=False):
         new_mask = ~df['id'].isin(existing_ids)
         new_count_raw = new_mask.sum()
         df = df[new_mask].copy()
-        print(f"[INFO] 去重后新增 {len(df)} 条 (原始 {new_count_raw} 条新, 已有 {len(existing_ids)} 条)")
+        logger.info(f"去重后新增 {len(df)} 条 (原始 {new_count_raw} 条新, 已有 {len(existing_ids)} 条)")
 
     if df.empty:
         print(f"[INFO] 话题 '{topic}' 本轮无新增数据，返回历史聚合结果。")
@@ -100,8 +99,7 @@ def run_pipeline(topic, limit=20, continue_mode=False):
 
     unique_users = df['user_id'].unique()
 
-    # Cookie 统一从 settings.py 读取，不再硬编码
-    cookie = _load_cookie_from_settings()
+    # Cookie 使用前端传入的值（已在函数入口回退处理过）
     HEADERS = {
         'cookie': cookie,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'
@@ -161,7 +159,7 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     df = compute_model_features(df)
 
     # v1.9.1 增加单条微博的情感极性，专门用于散点图横坐标展示，避免因为聚合文本导致的情感不准
-    from label_existing_data import calc_sentiment
+    from features import calc_sentiment
     df['single_sentiment_score'] = original_texts.apply(calc_sentiment)
 
     # 恢复原始正文用于前端展示，并强制列名为 '微博正文'
@@ -177,12 +175,8 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     # ============================================================
     # 可疑度评分系统 (v1.8.0 统一评分体系 — 调用 scoring.py)
     # ============================================================
-    from scoring import FEATURE_COLS, calc_rule_score, get_model_proba, apply_red_flags, is_official_media
+    from scoring import FEATURE_COLS, get_model_proba, compute_final_score, is_official_media
 
-    # --- 步骤 1: 规则评分 ---
-    df['rule_suspicion'] = df.apply(calc_rule_score, axis=1)
-
-    # --- 步骤 2: 模型推断 ---
     for col in FEATURE_COLS:
         if col not in df.columns:
             df[col] = 0
@@ -191,24 +185,15 @@ def run_pipeline(topic, limit=20, continue_mode=False):
     model_probs, model_available = get_model_proba(X)
     df['model_confidence'] = model_probs
 
-    # --- 步骤 3: 融合最终可疑度 (80% 模型 + 20% 规则) ---
-    if model_available:
-        df['suspicion_score'] = (0.2 * df['rule_suspicion'] + 0.8 * df['model_confidence']).round(4)
-    else:
-        df['suspicion_score'] = df['rule_suspicion']
+    def _apply_final_score(row):
+        features_dict = {c: float(row.get(c, 0)) for c in FEATURE_COLS}
+        m_prob = float(row.get('model_confidence', 0.5))
+        return compute_final_score(features_dict, m_prob, row.to_dict(), model_available=model_available)
 
-    # --- 步骤 3.5: 红旗否决机制 ---
-    df['suspicion_score'] = df.apply(
-        lambda row: apply_red_flags(row['suspicion_score'], row), axis=1
-    )
+    df['suspicion_score'] = df.apply(_apply_final_score, axis=1)
 
-    # --- 新闻媒体及官方豁免 ---
+    # 向后兼容与存库标识
     df['is_official_media'] = df.apply(is_official_media, axis=1).astype(int)
-    if model_available:
-        news_mask = (df['is_official_media'] == 1)
-        df.loc[news_mask, 'suspicion_score'] = df.loc[news_mask, 'suspicion_score'].clip(upper=0.3)
-
-    # 向后兼容
     df['bot_probability'] = df['suspicion_score']
     df['is_bot_pred'] = (df['suspicion_score'] >= 0.7).astype(int)
 

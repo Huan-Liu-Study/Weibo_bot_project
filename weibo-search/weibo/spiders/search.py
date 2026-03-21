@@ -54,6 +54,35 @@ class SearchSpider(scrapy.Spider):
             raise CloseSpider('已达到爬取结果数量限制')
         return False
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # ====== 通过 CLI `-a` 参数动态注入，实现进程级隔离 ======
+        # 如果传入了 keyword，则覆盖 settings.py 中的 KEYWORD_LIST
+        if kwargs.get('keyword'):
+            kw = kwargs['keyword']
+            if len(kw) > 2 and kw[0] == '#' and kw[-1] == '#':
+                kw = '%23' + kw[1:-1] + '%23'
+            self.keyword_list = [kw]
+
+        if kwargs.get('limit_result'):
+            self.limit_result = int(kwargs['limit_result'])
+
+        if kwargs.get('start_date'):
+            self.start_date = kwargs['start_date']
+
+        if kwargs.get('end_date'):
+            self.end_date = kwargs['end_date']
+
+        # 用户级 Cookie 隔离：优先使用 CLI 传入的 custom_cookie
+        self.custom_cookie = kwargs.get('custom_cookie', '')
+
+    def _make_request(self, url, callback, meta=None):
+        """统一构建 Request，自动注入用户级 Cookie（如有）"""
+        headers = {}
+        if self.custom_cookie:
+            headers['cookie'] = self.custom_cookie
+        return scrapy.Request(url=url, callback=callback, meta=meta or {}, headers=headers)
+
     def start_requests(self):
         start_date = datetime.strptime(self.start_date, '%Y-%m-%d')
         end_date = datetime.strptime(self.end_date,
@@ -67,7 +96,7 @@ class SearchSpider(scrapy.Spider):
                 url = base_url + self.weibo_type
                 url += self.contain_type
                 url += '&timescope=custom:{}:{}'.format(start_str, end_str)
-                yield scrapy.Request(url=url,
+                yield self._make_request(url=url,
                                      callback=self.parse,
                                      meta={
                                          'base_url': base_url,
@@ -82,7 +111,7 @@ class SearchSpider(scrapy.Spider):
                     url += self.contain_type
                     url += '&timescope=custom:{}:{}'.format(start_str, end_str)
                     # 获取一个省的搜索结果
-                    yield scrapy.Request(url=url,
+                    yield self._make_request(url=url,
                                          callback=self.parse,
                                          meta={
                                              'base_url': base_url,
@@ -133,7 +162,7 @@ class SearchSpider(scrapy.Spider):
                 if self.check_limit():
                     return
                 next_url = self.base_url + next_url
-                yield scrapy.Request(url=next_url,
+                yield self._make_request(url=next_url,
                                      callback=self.parse_page,
                                      meta={'keyword': keyword})
         else:
@@ -148,7 +177,7 @@ class SearchSpider(scrapy.Spider):
                 url += '&timescope=custom:{}:{}&page=1'.format(
                     start_str, end_str)
                 # 获取一天的搜索结果
-                yield scrapy.Request(url=url,
+                yield self._make_request(url=url,
                                      callback=self.parse_by_day,
                                      meta={
                                          'base_url': base_url,
@@ -183,7 +212,7 @@ class SearchSpider(scrapy.Spider):
                 if self.check_limit():
                     return
                 next_url = self.base_url + next_url
-                yield scrapy.Request(url=next_url,
+                yield self._make_request(url=next_url,
                                      callback=self.parse_page,
                                      meta={'keyword': keyword})
         else:
@@ -200,7 +229,7 @@ class SearchSpider(scrapy.Spider):
                 url += '&timescope=custom:{}:{}&page=1'.format(
                     start_str, end_str)
                 # 获取一小时的搜索结果
-                yield scrapy.Request(url=url,
+                yield self._make_request(url=url,
                                      callback=self.parse_by_hour_province
                                      if province else self.parse_by_hour,
                                      meta={
@@ -230,7 +259,7 @@ class SearchSpider(scrapy.Spider):
                 '//a[@class="next"]/@href').extract_first()
             if next_url:
                 next_url = self.base_url + next_url
-                yield scrapy.Request(url=next_url,
+                yield self._make_request(url=next_url,
                                      callback=self.parse_page,
                                      meta={'keyword': keyword})
         else:
@@ -242,7 +271,7 @@ class SearchSpider(scrapy.Spider):
                 url += '&timescope=custom:{}:{}&page=1'.format(
                     start_time, end_time)
                 # 获取一小时一个省的搜索结果
-                yield scrapy.Request(url=url,
+                yield self._make_request(url=url,
                                      callback=self.parse_by_hour_province,
                                      meta={
                                          'keyword': keyword,
@@ -271,7 +300,7 @@ class SearchSpider(scrapy.Spider):
                 '//a[@class="next"]/@href').extract_first()
             if next_url:
                 next_url = self.base_url + next_url
-                yield scrapy.Request(url=next_url,
+                yield self._make_request(url=next_url,
                                      callback=self.parse_page,
                                      meta={'keyword': keyword})
         else:
@@ -283,7 +312,7 @@ class SearchSpider(scrapy.Spider):
                 url += '&timescope=custom:{}:{}&page=1'.format(
                     start_time, end_time)
                 # 获取一小时一个城市的搜索结果
-                yield scrapy.Request(url=url,
+                yield self._make_request(url=url,
                                      callback=self.parse_page,
                                      meta={
                                          'keyword': keyword,
@@ -314,7 +343,7 @@ class SearchSpider(scrapy.Spider):
                 if self.check_limit():
                     return
                 next_url = self.base_url + next_url
-                yield scrapy.Request(url=next_url,
+                yield self._make_request(url=next_url,
                                      callback=self.parse_page,
                                      meta={'keyword': keyword})
 

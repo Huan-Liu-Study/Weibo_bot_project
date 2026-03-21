@@ -119,7 +119,7 @@ def build_topic_response(df):
             "total_scanned": total_scanned,
             "bot_count": bot_count,
             "news_count": int(df['is_official_media'].sum()) if 'is_official_media' in df.columns else 0,
-            "overall_bot_ratio": bot_ratio,
+            "bot_ratio": bot_ratio,
             "avg_bot_score": avg_score,
             "overall_sentiment": overall_sentiment
         },
@@ -127,8 +127,8 @@ def build_topic_response(df):
         "suspects": clean_for_json(suspects_list),
         "all_nodes": clean_for_json(all_nodes_list),
         "wordclouds": {
-            "humans": generate_wordcloud_data(df[(df['is_bot_pred'] == 0) & (df['is_official_media'] == 0)]['微博正文'].tolist()),
-            "bots": generate_wordcloud_data(df[df['is_bot_pred'] == 1]['微博正文'].tolist())
+            "humans": generate_wordcloud_data(df[(df['is_bot_pred'] == 0) & (df['is_official_media'] == 0)].drop_duplicates(subset=['微博正文'])['微博正文'].tolist()),
+            "bots": generate_wordcloud_data(df[df['is_bot_pred'] == 1].drop_duplicates(subset=['微博正文'])['微博正文'].tolist())
         },
         "feed": clean_for_json(df.head(20))
     }
@@ -182,7 +182,7 @@ def analyze_single_user(uid):
     X = df[FEATURE_COLS].fillna(0)
     features_dict = {c: float(X[c].iloc[0]) for c in FEATURE_COLS}
 
-    model_probs, _ = get_model_proba(X)
+    model_probs, model_available = get_model_proba(X)
     model_prob = float(model_probs[0])
 
     row_dict = {
@@ -192,7 +192,7 @@ def analyze_single_user(uid):
         'screen_name': user_info.get('screen_name', ''),
         'user_authentication': user_info.get('user_authentication', '')
     }
-    score = compute_final_score(features_dict, model_prob, row_dict)
+    score = compute_final_score(features_dict, model_prob, row_dict, model_available=model_available)
 
     # 4. 生成判定理由
     reasons = generate_reasons(features_dict, score, dict(row_dict))
