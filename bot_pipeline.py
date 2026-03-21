@@ -50,8 +50,9 @@ def run_pipeline(topic, limit=20, continue_mode=False, cookie=None):
         os.remove(csv_path)
 
     # 2. 通过命令行参数启动 Scrapy（彻底消除文件覆写竞态条件）
+    import sys
     scrapy_cmd = [
-        "python", "-m", "scrapy", "crawl", "search",
+        sys.executable, "-m", "scrapy", "crawl", "search",
         "-a", f"keyword={topic}",
         "-a", f"limit_result={fetch_limit}",
         "-a", f"start_date={start_date}",
@@ -60,6 +61,10 @@ def run_pipeline(topic, limit=20, continue_mode=False, cookie=None):
         "-s", "LOG_LEVEL=WARNING",
     ]
     try:
+        # 在 Linux 服务器上，通过 python -m 启动时需显式将当前目录加入环境变量
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.path.abspath("weibo-search")
+        
         subprocess.run(
             scrapy_cmd,
             cwd="weibo-search", 
