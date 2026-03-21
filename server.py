@@ -94,4 +94,5 @@ def check_user():
 # ===================== Entry =====================
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000, use_reloader=False)
+    # host='0.0.0.0' 是云端部署的关键，允许外网通过公网 IP 访问
+    app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
