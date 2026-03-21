@@ -123,8 +123,13 @@ def compute_model_features(df):
     df['engagement_count'] = df.apply(lambda r: calc_recent_engagement(r.get('recent_engagements', [])), axis=1)
 
     # 9 is_verified
-    auth = 'user_authentication'
-    df['is_verified'] = df.get(auth, pd.Series([''] * len(df))).astype(str).apply(lambda x: 1 if 'V' in x or '认证' in x else 0)
+    def check_verified(row):
+        auth_val = str(row.get('user_authentication', ''))
+        reason_val = str(row.get('verified_reason', ''))
+        combined = auth_val + ' ' + reason_val
+        return 1 if 'V' in combined or '认证' in combined else 0
+
+    df['is_verified'] = df.apply(check_verified, axis=1)
 
     # 10 sentiment_score
     df['sentiment_score'] = df[cc].apply(calc_sentiment)

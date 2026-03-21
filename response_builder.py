@@ -134,9 +134,10 @@ def build_topic_response(df):
     }
 
 
-def analyze_single_user(uid):
+def analyze_single_user(uid, cookie=""):
     """分析单个用户的可疑度"""
-    cookie = load_cookie()
+    if not cookie:
+        cookie = load_cookie()
     headers = {
         'cookie': cookie,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -146,10 +147,35 @@ def analyze_single_user(uid):
         async with aiohttp.ClientSession() as session:
             return await fetch_user_profile_and_timeline(session, uid, headers)
 
+    def run_sync(coro):
+        import asyncio
+        import threading
+        res_box = []
+        exc_box = []
+        def _target():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                res = loop.run_until_complete(coro)
+                res_box.append(res)
+            except Exception as e:
+                exc_box.append(e)
+            finally:
+                loop.close()
+        t = threading.Thread(target=_target)
+        t.start()
+        t.join()
+        if exc_box:
+            raise exc_box[0]
+        return res_box[0]
+
     try:
-        user_info = asyncio.run(fetch())
+        user_info = run_sync(fetch())
     except Exception as e:
-        print(f"Error fetching user: {e}")
+        import traceback
+        import sys
+        print(f"Error fetching user: {e}", file=sys.stderr)
+        traceback.print_exc()
         user_info = None
 
     if not user_info or user_info.get('followers_count', 0) == 0 and not user_info.get('screen_name'):
@@ -159,7 +185,7 @@ def analyze_single_user(uid):
     df = pd.DataFrame([{
         'user_id': uid,
         '用户昵称': user_info.get('screen_name', ''),
-        '微博正文': ' '.join(user_info.get('recent_texts', [])[:3]) if user_info.get('recent_texts') else '',
+        '微博正文': ' '.join(user_info.get('recent_texts', [])[:15]) if user_info.get('recent_texts') else '',
         'followers_count': user_info.get('followers_count', 0),
         'friends_count': user_info.get('friends_count', 0),
         'statuses_count': user_info.get('statuses_count', 0),

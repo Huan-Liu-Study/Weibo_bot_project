@@ -54,8 +54,15 @@ if (topicBtn) {
         if (!topic) { alert('请输入话题关键词'); return; }
 
         const depth = parseInt(depthSlider.value);
-        const cookieEl = document.getElementById('cookieInput');
-        const cookie = cookieEl ? cookieEl.value.trim() : '';
+        const c1 = document.getElementById('cookieInput');
+        const c2 = document.getElementById('cookieInputUser');
+        const cookie = (c1 && c1.value.trim()) || (c2 && c2.value.trim()) || '';
+
+        if (!cookie) {
+            alert('❌ 必须提供微博 Cookie 才能启动检测！\n\n请按照输入框上方的说明获取并粘贴您的 Cookie。');
+            if (c1) c1.focus();
+            return;
+        }
 
         // UI: loading state
         topicBtn.disabled = true;
@@ -345,13 +352,22 @@ if (userBtn) {
         const uid = document.getElementById('uidInput').value.trim();
         if (!uid) { alert('请输入微博用户 UID'); return; }
 
+        const c1 = document.getElementById('cookieInput');
+        const c2 = document.getElementById('cookieInputUser');
+        const cookie = (c2 && c2.value.trim()) || (c1 && c1.value.trim()) || '';
+        if (!cookie) {
+            alert('❌ 必须提供微博 Cookie 才能启动单账号检测！\n\n请在输入框中配置您的 Cookie。');
+            if (c2) c2.focus();
+            return;
+        }
+
         userBtn.disabled = true;
         userBtn.querySelector('.btn-text').style.display = 'none';
         userBtn.querySelector('.btn-loading').style.display = 'flex';
         if (window._setParticleSpeed) window._setParticleSpeed(0.005);
 
         try {
-            const data = await window.api.checkUser(uid);
+            const data = await window.api.checkUser(uid, cookie);
             renderUserResults(data);
         } catch (e) {
             showError('userResults', '请求失败：' + e.message);
@@ -420,14 +436,34 @@ function renderReasons(reasons) {
     if (!infoTrigger || !infoOverlay) return;
 
     let isOpen = false;
+    let mdLoaded = false;
 
-    const toggleInfo = (show) => {
+    const toggleInfo = async (show) => {
         if (show === isOpen) return;
         isOpen = show;
 
         if (show) {
             infoOverlay.style.display = 'flex';
             
+            // 动态加载并渲染 Markdown 文档
+            if (!mdLoaded && window.marked) {
+                try {
+                    const res = await fetch('/static/docs/system_guide.md');
+                    if (res.ok) {
+                        const text = await res.text();
+                        const html = window.marked.parse(text);
+                        const container = document.getElementById('guideContent');
+                        if (container) container.innerHTML = html;
+                        mdLoaded = true;
+                    } else {
+                        const container = document.getElementById('guideContent');
+                        if (container) container.innerHTML = '<p style="text-align:center;">无法加载文档说明。</p>';
+                    }
+                } catch(e) {
+                    console.error('Failed to load markdown guide:', e);
+                }
+            }
+
             if (window._particleGroup && window.gsap) {
                 window.gsap.to(window._particleGroup.scale, {
                     x: 3.5, y: 3.5, z: 3.5,
@@ -587,3 +623,45 @@ async function deleteHistoryTopic(topic) {
         alert('删除失败: ' + err.message);
     }
 }
+
+// ==================== COOKIE GUIDE RENDERING ====================
+(async function initCookieGuide() {
+    const containers = [
+        document.getElementById('cookieGuideContainer'),
+        document.getElementById('cookieGuideContainerUser')
+    ];
+    if (!containers.some(c => c)) return;
+    
+    try {
+        const res = await fetch('/static/docs/cookie_guide.md');
+        if (res.ok) {
+            const text = await res.text();
+            if (window.marked) {
+                const parsedHtml = window.marked.parse(text);
+                containers.forEach(container => {
+                    if (!container) return;
+                    container.innerHTML = parsedHtml;
+                    container.querySelectorAll('a').forEach(a => {
+                        a.target = "_blank";
+                        a.style.color = "#d4af37";
+                        a.style.textDecoration = "underline";
+                    });
+                });
+            }
+        } else {
+            containers.forEach(container => {
+                if (container) container.innerHTML = '<p>无法加载说明文档。</p>';
+            });
+        }
+    } catch(e) {
+        console.error('Failed to load cookie guide:', e);
+    }
+
+    // 同步双端 Cookie 输入框
+    const c1 = document.getElementById('cookieInput');
+    const c2 = document.getElementById('cookieInputUser');
+    if (c1 && c2) {
+        c1.addEventListener('input', () => c2.value = c1.value);
+        c2.addEventListener('input', () => c1.value = c2.value);
+    }
+})();

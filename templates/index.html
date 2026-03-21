@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,14 +8,20 @@
     <meta name="description" content="基于机器学习的微博社交机器人自动化检测系统">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts-wordcloud@2.1.0/dist/echarts-wordcloud.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css">
 
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
+
 <body>
     <section id="hero">
         <canvas id="particleCanvas"></canvas>
@@ -29,10 +36,15 @@
                 <div class="scroll-arrow"></div>
             </div>
         </div>
-        
+
         <!-- Floating Info Button -->
         <button id="infoTrigger" class="info-fab" title="系统说明">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
         </button>
     </section>
 
@@ -41,156 +53,21 @@
         <div class="overlay-backdrop"></div>
         <div class="info-modal">
             <button class="close-overlay" id="closeInfo">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
             </button>
             <div class="info-header">
-                <h2>Weibo Bot Shield 系统技术报告</h2>
+                <h2>Weibo Bot Shield 系统使用说明</h2>
                 <div class="header-line"></div>
                 <p style="margin-top:12px;font-size:0.85rem;color:var(--text-dim);">基于机器学习的微博社交机器人自动化检测系统 · 技术白皮书</p>
             </div>
 
-            <!-- 目录 -->
-            <nav class="doc-toc">
-                <h3>目录</h3>
-                <ol>
-                    <li><a onclick="scrollToSection(event,'sec-collect')">数据采集层</a></li>
-                    <li><a onclick="scrollToSection(event,'sec-features')">核心特征工程 (9 维)</a></li>
-                    <li><a onclick="scrollToSection(event,'sec-model')">模型训练与推断</a></li>
-                    <li><a onclick="scrollToSection(event,'sec-score')">可疑度评分系统</a></li>
-                    <li><a onclick="scrollToSection(event,'sec-redflag')">红旗否决机制</a></li>
-                    <li><a onclick="scrollToSection(event,'sec-fusion')">分数融合与最终判定</a></li>
-                    <li><a onclick="scrollToSection(event,'sec-log')">系统日志</a></li>
-                </ol>
-            </nav>
-
-            <!-- 第一章 -->
-            <section class="doc-section" id="sec-collect">
-                <h3>一、数据采集层</h3>
-                <p>为确保判定时效性，系统实施了<strong>“极简异步直达”</strong>的二次抓取策略 (v1.5.0)：</p>
-                <ul>
-                    <li><strong>并行解析 (Scrapy)</strong>：仅提取核心帖子文本与转评赞数量，剥离了一切不入模的冗余数据（如：发布地 IP、文章长链、精准地理坐标等），消灭了导致卡顿的同步阻塞。</li>
-                    <li><strong>无头扩充 (Ajax 协程)</strong>：拿到核心名单后，由 <code>asyncio + aiohttp</code> 协程池瞬时回填用户的 <strong>粉丝数、历史发帖、V认证</strong> 等构建画像的必需要素。</li>
-                    <li><strong>效率跃升</strong>：单条数据的全链路（抓取+画像重建）处理速度比旧版提升近 <strong>300%</strong>。</li>
-                </ul>
-            </section>
-
-            <!-- 第二章 -->
-            <section class="doc-section" id="sec-features">
-                <h3>二、核心特征工程 (9 维)</h3>
-                <p>系统精简了特征集，仅保留与 <strong>Random Forest 模型</strong> 强相关的 9 个核心维度。移除粉关比、缺省头像等噪音特征，增强泛化能力。</p>
-                <table class="doc-table">
-                    <thead>
-                        <tr><th>#</th><th>特征名</th><th>计算方法</th><th>类型</th></tr>
-                    </thead>
-                    <tbody>
-                        <tr><td>1</td><td>daily_post_rate</td><td>近 20 条帖子数 / 时间跨度天数; 上限 50; log1p 缩放</td><td>行为</td></tr>
-                        <tr><td>2</td><td>human_likeness_score</td><td>词汇丰富度x0.4 + 主观词密度x0.3 + 复句复杂度x0.3</td><td>语义</td></tr>
-                        <tr><td>3</td><td>exclamation_density</td><td>(! + ！) 出现次数 / 文本总长度</td><td>内容</td></tr>
-                        <tr><td>4</td><td>is_random_name</td><td>昵称含 5 位以上连续数字 = 1</td><td>账号</td></tr>
-                        <tr><td>5</td><td>engagement_count</td><td>近 20 条原创帖的 (转+评+赞) 平均值; 最低兜底 1.0</td><td>社交</td></tr>
-                        <tr><td>6</td><td>is_verified</td><td>认证字段含 "V" 或 "认证" = 1</td><td>信任</td></tr>
-                        <tr><td>7</td><td>sentiment_score</td><td>SnowNLP 朴素贝叶斯（截取前 100 字符）; 0~1</td><td>情感</td></tr>
-                        <tr><td>8</td><td>topic_diversity</td><td>(独立话题数 + 无标签帖数) / 总帖数; 上限 1.0</td><td>内容</td></tr>
-                        <tr><td>9</td><td>post_interval_variance</td><td>近 20 条帖时间间隔（小时）的标准差; log1p 缩放</td><td>时序</td></tr>
-                    </tbody>
-                </table>
-            </section>
-
-            <!-- 第三章 -->
-            <section class="doc-section" id="sec-model">
-                <h3>三、模型训练与推断</h3>
-                <p>模型采用 <strong>RandomForestRegressor</strong>（scikit-learn），核心超参数：</p>
-                <ul>
-                    <li><code>n_estimators = 150</code>（150 棵并行决策树）</li>
-                    <li><code>max_depth = 8</code>（限制树深，防止过拟合单一特征）</li>
-                    <li><code>max_features = 'sqrt'</code>（每棵树仅使用 sqrt(9) = 3 个特征，强制学习多维组合）</li>
-                    <li><code>random_state = 42</code>（确保可复现性）</li>
-                </ul>
-                <p><strong>训练数据</strong>：1300+ 条人工标注样本，采用 <strong>5 档连续评分体系</strong>（0.0 / 0.25 / 0.5 / 0.75 / 1.0），排除机器自动标注的数据，仅从人类专家判断中学习。</p>
-                <p><strong>推断过程</strong>：输入 9 维特征向量 → 模型输出 0~1 连续可疑度分数（<code>model_confidence</code>）。</p>
-            </section>
-
-            <!-- 第四章 -->
-            <section class="doc-section" id="sec-score">
-                <h3>四、可疑度评分系统（加权规则）</h3>
-                <p>系统并行运行一套<strong>基于用户标注体感校准的加权规则评分</strong>，作为模型的互补：</p>
-                <table class="doc-table">
-                    <thead><tr><th>优先级</th><th>特征</th><th>权重</th><th>阈值逻辑</th></tr></thead>
-                    <tbody>
-                        <tr><td>高</td><td>发帖间隔方差</td><td>0.25</td><td>log &lt; 0.41 = 1.0, &lt; 1.10 = 0.7, &lt; 1.79 = 0.3</td></tr>
-                        <tr><td>高</td><td>日均发帖率</td><td>0.25</td><td>log &gt; 3.93 = 1.0, &gt; 3.04 = 0.7, &gt; 2.40 = 0.4</td></tr>
-                        <tr><td>高</td><td>平均互动量</td><td>0.25</td><td>= 0 则 1.0, &lt; 0.69 = 0.7, &lt; 1.6 = 0.3</td></tr>
-                        <tr><td>中</td><td>数字乱码名</td><td>0.15</td><td>含5位连续数字 = 1.0, 否则 0</td></tr>
-                        <tr><td>低</td><td>感叹号密度</td><td>0.10</td><td>&gt; 0.08 = 1.0, &gt; 0.04 = 0.5</td></tr>
-                    </tbody>
-                </table>
-                <p style="margin-top:10px;"><strong>新闻媒体豁免</strong>：经 <code>verified_reason</code> 字段匹配 17 个媒体关键词后，可疑度 x0.3 衰减。</p>
-            </section>
-
-            <!-- 第五章 -->
-            <section class="doc-section" id="sec-redflag">
-                <h3>五、红旗否决机制 (Red Flag Override)</h3>
-                <p>即使模型整体打分偏低，若以下任一硬性条件触发，可疑度将被<strong>强制提升至 &ge; 0.55</strong>：</p>
-                <ol>
-                    <li><strong>发帖间隔方差 (log1p) &le; 0.69</strong> — 约等于 log1p(1)，即几乎等间隔发帖</li>
-                    <li><strong>日均发帖率 (log1p) &ge; 3.93</strong> — 约等于 log1p(50)，日均 50 帖以上</li>
-                    <li><strong>话题多样性 &le; 10%</strong>，且非默认值，即长期刷单一话题</li>
-                </ol>
-            </section>
-
-            <!-- 第六章 -->
-            <section class="doc-section" id="sec-fusion">
-                <h3>六、分数融合与最终判定</h3>
-                <p>最终可疑度通过<strong>加权融合</strong>生成：</p>
-                <ul>
-                    <li>当模型可用时：<strong>最终分 = 20% x 规则分 + 80% x 模型分</strong></li>
-                    <li>当模型不可用时：<strong>最终分 = 100% 规则分</strong></li>
-                </ul>
-                <p>融合后执行红旗否决与媒体豁免修正。最终判定阈值：<strong>&ge; 0.7 判定为疑似水军</strong>。</p>
-                <p>单用户检测模式下，可疑度映射为 5 档标签：0(正常) / 1(偏低) / 2(中等) / 3(偏高) / 4(极高)。</p>
-            </section>
-
-            <!-- 日志 -->
-            <section class="doc-section" id="sec-log">
-                <h3>七、系统日志 (Log)</h3>
-                <ul class="log-list">
-                    <li class="log-item">
-                        <span class="log-date">2026-03-19</span>
-                        <div class="log-content">
-                            <strong>v1.7.0 断点续爬与数据持久化</strong>
-                            <p>引入 SQLite 持久化层，支持跨批次去重与累积聚合分析。用户可随时"继续深入采集"，不再受限于单次检测窗口。</p>
-                        </div>
-                    </li>
-                    <li class="log-item">
-                        <span class="log-date">2026-03-19</span>
-                        <div class="log-content">
-                            <strong>v1.6.0 检测容量线性扩容</strong>
-                            <p>基于 v1.5.0 的性能飞跃，将单次话题检测的采样深度上限从 100 提升至 300 条，支持更大规模的水军群体探测。</p>
-                        </div>
-                    </li>
-                    <li class="log-item">
-                        <span class="log-date">2026-03-19</span>
-                        <div class="log-content">
-                            <strong>v1.5.0 数据采集层“瘦身”优化</strong>
-                            <p>下线了耗时的 <code>get_ip</code> 同步请求，并全面剔除地理位置、文章链接、用户性别等非推理字段的采集，整体响应速度提升约 300%。</p>
-                        </div>
-                    </li>
-                    <li class="log-item">
-                        <span class="log-date">2026-03-19</span>
-                        <div class="log-content">
-                            <strong>v1.4.0 特征精简与逻辑升级</strong>
-                            <p>模型特征精简至 9 维核心维度，移除噪音项。调整评分权重，模型占比提升至 80%。同步重构检测流水线与重训脚本。</p>
-                        </div>
-                    </li>
-                    <li class="log-item">
-                        <span class="log-date">2026-03-19</span>
-                        <div class="log-content">
-                            <strong>v1.3.0 技术文档系统上线</strong>
-                            <p>新增目录式系统技术报告，涵盖采集、特征、模型、评分等六大章节。引入 GSAP 粒子球展开动效与毛玻璃视觉方案。</p>
-                        </div>
-                    </li>
-                </ul>
-            </section>
+            <!-- Markdown 渲染容器 -->
+            <div id="guideContent" class="markdown-body" style="padding: 1rem 2.5rem; background: transparent;">
+                <p style="text-align: center; color: var(--text-dim); padding: 2rem;">正在加载文档内容...</p>
+            </div>
         </div>
     </div>
 
@@ -199,16 +76,26 @@
         <!-- Tab Navigation -->
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="topic">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="m21 21-4.35-4.35" />
+                </svg>
                 话题检测
             </button>
             <button class="tab-btn" data-tab="user">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                </svg>
                 单账号检测
             </button>
             <button class="tab-btn" data-tab="history">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
-                历史记录
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                    <path d="M12 7v5l4 2" />
+                </svg>
+                全网热搜检测库
             </button>
         </nav>
 
@@ -222,9 +109,16 @@
                         <input type="range" id="depthSlider" min="10" max="300" value="20" step="5">
                     </div>
                     <div class="input-options" style="margin-top:8px;">
-                        <details style="width:100%;">
-                            <summary style="cursor:pointer;font-size:0.82rem;color:var(--text-dim);user-select:none;">🔑 手动注入 Cookie（可选，不填则使用默认）</summary>
-                            <input type="text" id="cookieInput" placeholder="粘贴您的微博 Cookie（SUB=xxx; ...）" spellcheck="false" style="margin-top:6px;font-size:0.8rem;padding:8px 12px;width:100%;box-sizing:border-box;border-radius:8px;border:1px solid var(--border);background:var(--glass);color:var(--text);">
+                        <details style="width:100%;" open>
+                            <summary style="cursor:pointer;font-size:0.85rem;color:var(--text);user-select:none; font-weight:600;">
+                                🔑 必填：微博身份验证 (Cookie) <span style="font-size:0.75rem; color:#43a047; font-weight:normal; margin-left:5px;">(支持与另一页面双向实时同步)</span>
+                            </summary>
+                            <div id="cookieGuideContainer" class="markdown-body" style="margin-top:8px; font-size:0.75rem; color:var(--text-dim); line-height:1.6; background: rgba(0,0,0,0.15); padding: 10px 15px; border-radius: 6px; border-left: 3px solid #d4af37; background-color: transparent !important;">
+                                <p style="margin:0;">正在加载 Cookie 配置说明...</p>
+                            </div>
+                            <input type="text" id="cookieInput" placeholder="在此处粘贴完整 Cookie（如：SUB=xxx; SUBP=xxx...）"
+                                spellcheck="false"
+                                style="margin-top:10px;font-size:0.8rem;padding:10px 12px;width:100%;box-sizing:border-box;border-radius:8px;border:1px solid rgba(212, 175, 55, 0.4);background:var(--glass);color:var(--text);">
                         </details>
                     </div>
                 </div>
@@ -253,7 +147,11 @@
                 <!-- v1.7.0: Continuation Banner -->
                 <div id="crawlBanner" class="crawl-banner" style="display:none">
                     <div class="crawl-banner-info">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                            <polyline points="22 4 12 14.01 9 11.01" />
+                        </svg>
                         <span id="crawlBannerText">本次新增 0 条数据，该话题下已累计分析 0 条帖子</span>
                     </div>
                     <!-- v1.7.5: New Depth Selector for Continuation -->
@@ -262,7 +160,11 @@
                         <input type="range" id="continueDepthSlider" min="20" max="300" step="10" value="20">
                     </div>
                     <button id="continueBtn" class="continue-btn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M5 12h14" />
+                            <path d="m12 5 7 7-7 7" />
+                        </svg>
                         继续深入采集
                     </button>
                 </div>
@@ -321,13 +223,19 @@
                     <!-- v1.9.30: Pagination for suspects -->
                     <div id="suspectPagination" class="pagination-controls" style="display:none">
                         <button id="prevSuspectBtn" class="page-btn">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="m15 18-6-6 6-6" />
+                            </svg>
                             上一页
                         </button>
                         <span id="suspectPageInfo" class="page-info">第 1 / 1 页</span>
                         <button id="nextSuspectBtn" class="page-btn">
                             下一页
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="m9 18 6-6-6-6" />
+                            </svg>
                         </button>
                     </div>
 
@@ -339,7 +247,20 @@
         <section id="tab-user" class="tab-panel">
             <div class="input-section">
                 <div class="input-group">
-                    <input type="text" id="uidInput" placeholder="输入微博用户 UID（纯数字），如：1234567890" spellcheck="false">
+                    <input type="text" id="uidInput" placeholder="输入微博用户 UID（纯数字），如：1234567890" spellcheck="false" style="margin-bottom: 8px;">
+                    <div class="input-options" style="margin-top:8px;">
+                        <details style="width:100%;" open>
+                            <summary style="cursor:pointer;font-size:0.85rem;color:var(--text);user-select:none; font-weight:600;">
+                                🔑 必填：微博身份验证 (Cookie) <span style="font-size:0.75rem; color:#43a047; font-weight:normal; margin-left:5px;">(支持与另一页面双向实时同步)</span>
+                            </summary>
+                            <div id="cookieGuideContainerUser" class="markdown-body" style="margin-top:8px; font-size:0.75rem; color:var(--text-dim); line-height:1.6; background: rgba(0,0,0,0.15); padding: 10px 15px; border-radius: 6px; border-left: 3px solid #d4af37; background-color: transparent !important;">
+                                <p style="margin:0;">正在加载 Cookie 配置说明...</p>
+                            </div>
+                            <input type="text" id="cookieInputUser" placeholder="在此处粘贴完整 Cookie（如：SUB=xxx; SUBP=xxx...）"
+                                spellcheck="false"
+                                style="margin-top:10px;font-size:0.8rem;padding:10px 12px;width:100%;box-sizing:border-box;border-radius:8px;border:1px solid rgba(212, 175, 55, 0.4);background:var(--glass);color:var(--text);">
+                        </details>
+                    </div>
                 </div>
                 <button id="userBtn" class="primary-btn">
                     <span class="btn-text">检测此账号</span>
@@ -362,10 +283,10 @@
                     <div class="score-gauge">
                         <div class="gauge-ring" id="gaugeRing">
                             <svg viewBox="0 0 120 120">
-                                <circle cx="60" cy="60" r="54" fill="none" stroke="#1a1a2e" stroke-width="8"/>
+                                <circle cx="60" cy="60" r="54" fill="none" stroke="#1a1a2e" stroke-width="8" />
                                 <circle cx="60" cy="60" r="54" fill="none" stroke-width="8" stroke-linecap="round"
-                                        id="gaugeArc" class="gauge-arc"
-                                        stroke-dasharray="339.29" stroke-dashoffset="339.29"/>
+                                    id="gaugeArc" class="gauge-arc" stroke-dasharray="339.29"
+                                    stroke-dashoffset="339.29" />
                             </svg>
                             <div class="gauge-value" id="gaugeValue">—</div>
                         </div>
@@ -394,37 +315,62 @@
             </div>
             <div id="historyList" class="history-grid">
                 <div class="history-empty">
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                        opacity="0.3">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                    </svg>
                     <p>暂无历史记录</p>
                 </div>
             </div>
         </section>
-        
+
         <!-- ==================== v1.9.0 NODE DETAIL MODAL ==================== -->
         <div id="nodeModal" class="info-overlay" style="display:none; z-index: 1000;">
             <div class="overlay-backdrop" id="nodeModalBackdrop"></div>
             <div class="info-modal node-modal">
                 <button class="close-overlay" id="closeNodeModal">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
                 </button>
                 <div class="modal-header">
-                    <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 8px;"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.9 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>账号判定详情</h2>
+                    <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" style="vertical-align: middle; margin-right: 8px;">
+                            <path
+                                d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.9 1.3 1.5 1.5 2.5" />
+                            <path d="M9 18h6" />
+                            <path d="M10 22h4" />
+                        </svg>账号判定详情</h2>
                 </div>
                 <div class="modal-body node-modal-body">
-                    <div class="node-profile" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
-                        <div class="user-avatar" id="nmAvatar" style="width: 50px; height: 50px; line-height: 50px; font-size: 1.5rem;">?</div>
+                    <div class="node-profile"
+                        style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                        <div class="user-avatar" id="nmAvatar"
+                            style="width: 50px; height: 50px; line-height: 50px; font-size: 1.5rem;">?</div>
                         <div class="user-info" style="flex: 1;">
                             <h3 id="nmName" style="margin:0 0 5px 0; font-size: 1.2rem; color: var(--text);">—</h3>
                             <p id="nmMeta" style="margin:0; font-size: 0.85rem; color: var(--text-dim);">—</p>
                         </div>
-                        <div class="suspect-score" id="nmScore" style="padding: 8px 16px; border-radius: 20px; font-weight: 700;">0%</div>
+                        <div class="suspect-score" id="nmScore"
+                            style="padding: 8px 16px; border-radius: 20px; font-weight: 700;">0%</div>
                     </div>
-                    <div class="node-text-box" style="background: rgba(0,0,0,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 1.5rem;">
+                    <div class="node-text-box"
+                        style="background: rgba(0,0,0,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 1.5rem;">
                         <p id="nmText" style="margin:0; font-size: 0.95rem; line-height: 1.6; color: var(--text);">—</p>
                     </div>
                     <div class="node-reasons">
-                        <h4 style="margin: 0 0 1rem 0; font-size: 1.05rem; color: var(--text); display: flex; align-items: center; gap: 8px;">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                        <h4
+                            style="margin: 0 0 1rem 0; font-size: 1.05rem; color: var(--text); display: flex; align-items: center; gap: 8px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="16" y1="13" x2="8" y2="13" />
+                                <line x1="16" y1="17" x2="8" y2="17" />
+                                <polyline points="10 9 9 9 8 9" />
+                            </svg>
                             智能判定理由
                         </h4>
                         <ul id="nmReasons" class="reasons-list"></ul>
@@ -444,12 +390,13 @@
     <script src="/static/js/api.js"></script>
     <script src="/static/js/app.js"></script>
     <script>
-    // Scroll helper for TOC links inside the modal
-    function scrollToSection(e, id) {
-        e.preventDefault();
-        var el = document.getElementById(id);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+        // Scroll helper for TOC links inside the modal
+        function scrollToSection(e, id) {
+            e.preventDefault();
+            var el = document.getElementById(id);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
     </script>
 </body>
+
 </html>

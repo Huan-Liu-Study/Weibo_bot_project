@@ -16,11 +16,11 @@ const api = {
         return data;
     },
 
-    checkUser: async (uid) => {
+    checkUser: async (uid, cookie = '') => {
         const res = await fetch('/api/check_user', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid })
+            body: JSON.stringify({ uid, cookie })
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error);

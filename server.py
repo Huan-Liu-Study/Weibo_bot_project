@@ -79,12 +79,13 @@ def check_user():
     """单账号检测 API：输入 UID，返回该用户的可疑度评分和特征"""
     data = request.json
     uid = data.get('uid', '')
+    cookie = data.get('cookie', '')
 
     if not uid:
         return jsonify({"error": "请输入有效的微博用户 UID"}), 400
 
     try:
-        result = analyze_single_user(uid)
+        result = analyze_single_user(uid, cookie)
         return jsonify(result)
     except Exception as e:
         logger.exception(f"单账号分析失败 UID={uid}")

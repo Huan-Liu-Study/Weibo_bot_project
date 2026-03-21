@@ -151,7 +151,7 @@ def run_pipeline(topic, limit=20, continue_mode=False, cookie=None):
 
     # 构造用于提取文本特征的长文本 (与 server.py 单账号检测完全对齐：使用近期原创微博组合)
     df['text_for_features'] = df.apply(
-        lambda row: ' '.join(row.get('recent_texts', [])[:3]) if isinstance(row.get('recent_texts'), list) and len(row.get('recent_texts', [])) > 0 else str(row.get(content_col, '')),
+        lambda row: ' '.join(row.get('recent_texts', [])[:15]) if isinstance(row.get('recent_texts'), list) and len(row.get('recent_texts', [])) > 0 else str(row.get(content_col, '')),
         axis=1
     )
     
