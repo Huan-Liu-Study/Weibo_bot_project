@@ -50,8 +50,10 @@ def run_pipeline(topic, limit=20, continue_mode=False, cookie=None):
         os.remove(csv_path)
 
     # 2. 通过命令行参数启动 Scrapy（彻底消除文件覆写竞态条件）
+    import sys
+    scrapy_cwd = os.path.join(os.path.dirname(__file__), "weibo-search")
     scrapy_cmd = [
-        "scrapy", "crawl", "search",
+        sys.executable, "-m", "scrapy", "crawl", "search",
         "-a", f"keyword={topic}",
         "-a", f"limit_result={fetch_limit}",
         "-a", f"start_date={start_date}",
@@ -60,9 +62,15 @@ def run_pipeline(topic, limit=20, continue_mode=False, cookie=None):
         "-s", "LOG_LEVEL=WARNING",
     ]
     try:
+        # 跨平台兼容：将 weibo-search 目录加入 PYTHONPATH，使 Scrapy 能找到 weibo.settings
+        env = os.environ.copy()
+        extra = os.path.abspath(scrapy_cwd)
+        env["PYTHONPATH"] = extra + os.pathsep + env.get("PYTHONPATH", "")
+
         subprocess.run(
             scrapy_cmd,
-            cwd="weibo-search", 
+            cwd=scrapy_cwd,
+            env=env, 
             check=True, 
             capture_output=True, 
             text=True,

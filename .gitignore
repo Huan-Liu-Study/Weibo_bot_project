@@ -14,8 +14,9 @@ weibo-search/结果文件/
 !golden_testset_labeled.csv
 !golden_testset_15features.csv
 
-# 3. 配置文件 (包含真实 Cookie，绝对不传！)
-weibo-search/weibo/settings.py
+# 3. 配置文件
+# settings.py 已清理敏感信息（Cookie 为空），可以安全提交
+# 用户通过前端注入自己的 Cookie，不再依赖 settings.py 中的 Cookie
 
 # 4. 模型文件 (体积太大，通常不传，视情况可单独强制上传 *.pkl)
 *.pkl
