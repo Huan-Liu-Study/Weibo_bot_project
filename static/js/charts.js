@@ -291,13 +291,14 @@ function renderUserRadar(features) {
 
     const keys = Object.keys(featureNames);
     const maxVals = {
-        daily_post_rate: 5, human_likeness_score: 1, exclamation_density: 0.1,
-        is_random_name: 1, engagement_count: 100, is_verified: 1,
-        sentiment_score: 1, topic_diversity: 1, post_interval_variance: 5
+        daily_post_rate: 4, human_likeness_score: 1, exclamation_density: 0.1,
+        is_random_name: 1, engagement_count: 50, is_verified: 1,
+        sentiment_score: 1, topic_diversity: 1, post_interval_variance: 2.5
     };
 
-    const indicators = keys.map(k => ({ name: featureNames[k], max: 1 }));
-    const values = keys.map(k => Math.min(1, (features[k] || 0) / maxVals[k]));
+    // Fix: Let ECharts handle the max scaling so tooltips show the REAL raw values instead of 0-1 fractions.
+    const indicators = keys.map(k => ({ name: featureNames[k], max: maxVals[k] }));
+    const values = keys.map(k => features[k] || 0);
 
     const chart = echarts.init(chartDom);
     chart.setOption({

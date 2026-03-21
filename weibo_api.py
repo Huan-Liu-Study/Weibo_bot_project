@@ -42,8 +42,14 @@ async def fetch_user_profile_and_timeline(session, uid, headers):
                 u = data.get('data', {}).get('user', {})
                 if u:
                     for k in result:
-                        if k not in ['uid', 'recent_post_times', 'recent_texts', 'recent_engagements', 'recent_topics']:
+                        if k not in ['uid', 'recent_post_times', 'recent_texts', 'recent_engagements', 'recent_topics', 'user_authentication']:
                             result[k] = u.get(k, result[k])
+                    
+                    # Ensure Random Forest 'is_verified' feature triggers identically to Scrapy data
+                    if u.get('verified') == True:
+                        result['user_authentication'] = "微博认证"
+                    else:
+                        result['user_authentication'] = ""
     except Exception as e:
         logger.warning(f"  [!] fetch profile failed {uid}: {e}")
 

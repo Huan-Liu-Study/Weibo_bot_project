@@ -136,6 +136,56 @@ def build_topic_response(df):
 
 def analyze_single_user(uid, cookie=""):
     """分析单个用户的可疑度"""
+    # 1. 尝试从本地 sqlite 缓存中读取，从而保证“话题检测”点开后的分数 100% 一致
+    import topic_db
+    import json
+    conn = topic_db._get_conn()
+    row = conn.execute("SELECT data_json FROM topic_posts WHERE data_json LIKE ?", (f'%"{uid}"%',)).fetchone()
+    conn.close()
+
+    if row:
+        try:
+            cached_data = json.loads(row[0])
+            if str(cached_data.get('user_id', '')) == str(uid):
+                # 完全复用已计算好的缓存特征与得分
+                score = float(cached_data.get('bot_probability', 0))
+                features_dict = {c: float(cached_data.get(c, 0)) for c in FEATURE_COLS}
+                
+                label = 0
+                if score < 0.125: label = 0
+                elif score < 0.375: label = 1
+                elif score < 0.625: label = 2
+                elif score < 0.875: label = 3
+                else: label = 4
+                
+                user_info = {
+                    'verified_reason': str(cached_data.get('verified_reason', '')),
+                    'description': str(cached_data.get('description', '')),
+                    'screen_name': str(cached_data.get('用户昵称', '')),
+                    'user_authentication': str(cached_data.get('user_authentication', ''))
+                }
+                
+                return {
+                    "status": "success",
+                    "user_info": {
+                        "uid": uid,
+                        "screen_name": str(cached_data.get('用户昵称', '')),
+                        "followers_count": int(cached_data.get('followers_count', 0)),
+                        "friends_count": int(cached_data.get('friends_count', 0)),
+                        "statuses_count": int(cached_data.get('statuses_count', 0)),
+                        "avatar_hd": str(cached_data.get('avatar_hd', '')),
+                        "description": str(cached_data.get('description', ''))[:100],
+                        "verified_reason": str(cached_data.get('verified_reason', '')),
+                    },
+                    "suspicion_score": round(score, 4),
+                    "suspicion_label": label,
+                    "features": features_dict,
+                    "reasons": generate_reasons(features_dict, score, user_info)
+                }
+        except Exception as e:
+            pass # 缓存读取失败则回退到实时拉取
+
+    # 2. 实时请求 Weibo API (针对纯净单账号检测)
     if not cookie:
         cookie = load_cookie()
     headers = {
