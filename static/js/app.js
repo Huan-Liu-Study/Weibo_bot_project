@@ -26,6 +26,12 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         if (tab === 'history') {
             fetchHistory();
         }
+        if (tab === 'label') {
+            if (_labelUnlocked) fetchLabelQueue();
+        }
+        if (tab === 'model') {
+            fetchModelInfo();
+        }
     });
 });
 
@@ -719,3 +725,585 @@ async function deleteHistoryTopic(topic) {
         c2.addEventListener('input', () => c1.value = c2.value);
     }
 })();
+
+// ==================== DATA LABELING MODULE ====================
+
+let _labelPage = 1;
+let _labelTotalPages = 1;
+let _labelUnlocked = false;
+let _labelView = 'unlabeled'; // 'unlabeled' or 'labeled'
+
+// Password gate logic
+function attemptLabelAuth() {
+    const pwd = document.getElementById('labelPasswordInput').value;
+    const errEl = document.getElementById('labelAuthError');
+    errEl.style.display = 'none';
+
+    fetch('/api/label/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwd })
+    }).then(r => {
+        if (r.ok) {
+            _labelUnlocked = true;
+            document.getElementById('labelAuthGate').style.display = 'none';
+            document.getElementById('labelWorkbench').style.display = '';
+            refreshCurrentLabelView();
+        } else {
+            errEl.style.display = 'block';
+            document.getElementById('labelPasswordInput').value = '';
+            document.getElementById('labelPasswordInput').focus();
+        }
+    }).catch(() => { errEl.style.display = 'block'; });
+}
+
+document.getElementById('labelAuthBtn')?.addEventListener('click', attemptLabelAuth);
+document.getElementById('labelPasswordInput')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') attemptLabelAuth();
+});
+
+// View switching
+window.switchLabelView = function(view) {
+    if (view === _labelView) return; // Prevent unnecessary refresh
+    _labelView = view;
+    _labelPage = 1;
+    document.querySelectorAll('.stat-chip').forEach(chip => {
+        if (chip.dataset.view) {
+            chip.classList.toggle('active', chip.dataset.view === view);
+        }
+    });
+    refreshCurrentLabelView();
+};
+
+function refreshCurrentLabelView(page) {
+    if (page) _labelPage = page;
+    if (_labelView === 'labeled') {
+        fetchLabeledQueue(_labelPage);
+    } else {
+        fetchLabelQueue(_labelPage);
+    }
+}
+
+// ---- Unlabeled Queue ----
+async function fetchLabelQueue(page = 1) {
+    const container = document.getElementById('labelCardsContainer');
+    const topicFilter = document.getElementById('labelTopicFilter');
+    const topic = topicFilter ? topicFilter.value : '';
+
+    try {
+        const data = await window.api.getLabelQueue(topic, page);
+        _labelPage = data.page || 1;
+        _labelTotalPages = Math.ceil((data.total || 0) / (data.page_size || 20));
+
+        // Update stats
+        const stats = data.stats || {};
+        const labeledCount = stats.total_labeled || data.labeled_count || 0;
+        const queueCount = data.total || 0;
+        const totalAll = labeledCount + queueCount;
+        document.getElementById('labelTotalCount').textContent = labeledCount;
+        document.getElementById('labelQueueCount').textContent = queueCount;
+
+        const pct = totalAll > 0 ? Math.round((labeledCount / totalAll) * 100) : 0;
+        document.getElementById('labelProgressFill').style.width = pct + '%';
+        document.getElementById('labelProgressText').textContent = pct + '%';
+
+        // Populate topic filter
+        if (data.topics && topicFilter) {
+            const currentVal = topicFilter.value;
+            topicFilter.innerHTML = '<option value="">全部话题</option>';
+            data.topics.forEach(t => {
+                topicFilter.innerHTML += `<option value="${escapeHtml(t)}" ${t === currentVal ? 'selected' : ''}>${escapeHtml(t)}</option>`;
+            });
+        }
+
+        // Render cards
+        const users = data.users || [];
+        if (users.length === 0) {
+            container.innerHTML = `<div class="history-empty">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+                    <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+                <p>暂无待标注数据。请先进行话题检测。</p>
+            </div>`;
+        } else {
+            container.innerHTML = users.map(u => renderLabelCard(u, 'unlabeled')).join('');
+        }
+
+        updateLabelPagination();
+    } catch (e) {
+        container.innerHTML = `<div class="history-empty"><p>加载失败：${escapeHtml(e.message)}</p></div>`;
+    }
+}
+
+// ---- Labeled Queue ----
+async function fetchLabeledQueue(page = 1) {
+    const container = document.getElementById('labelCardsContainer');
+    const topicFilter = document.getElementById('labelTopicFilter');
+    const topic = topicFilter ? topicFilter.value : '';
+
+    try {
+        const data = await window.api.getLabeledQueue(topic, page);
+        _labelPage = data.page || 1;
+        _labelTotalPages = Math.ceil((data.total || 0) / (data.page_size || 20));
+
+        const users = data.users || [];
+        if (users.length === 0) {
+            container.innerHTML = `<div class="history-empty">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+                    <path d="M9 12l2 2 4-4"/>
+                    <circle cx="12" cy="12" r="10"/>
+                </svg>
+                <p>暂无已标注数据</p>
+            </div>`;
+        } else {
+            container.innerHTML = users.map(u => renderLabelCard(u, 'labeled')).join('');
+        }
+
+        updateLabelPagination();
+    } catch (e) {
+        container.innerHTML = `<div class="history-empty"><p>加载失败：${escapeHtml(e.message)}</p></div>`;
+    }
+}
+
+// ---- Unified Pagination Update ----
+function updateLabelPagination() {
+    const paginationEl = document.getElementById('labelPagination');
+    if (_labelTotalPages > 1) {
+        paginationEl.style.display = 'flex';
+        document.getElementById('labelPageInfo').textContent = `第 ${_labelPage} / ${_labelTotalPages} 页`;
+        document.getElementById('prevLabelBtn').disabled = _labelPage <= 1;
+        document.getElementById('nextLabelBtn').disabled = _labelPage >= _labelTotalPages;
+    } else {
+        paginationEl.style.display = 'none';
+    }
+}
+
+// ---- Dual-mode Card Rendering ----
+function renderLabelCard(user, mode = 'unlabeled') {
+    const score = user.ai_pred_score || 0;
+    const pct = Math.round(score * 100);
+    const cls = score >= 0.7 ? 'high' : score >= 0.4 ? 'medium' : 'low';
+    const name = user.screen_name || 'UID:' + user.user_id;
+    const avatarHtml = (user.avatar_hd && user.avatar_hd.length > 10)
+        ? `<img src="${user.avatar_hd}" alt="">`
+        : name[0];
+
+    const labelNames = {'-1': '新闻媒体', '0': '真人', '1': '大概率真人', '2': '不确定', '3': '可疑', '4': '水军'};
+    const currentLabel = user.suspicion_label;
+
+    const labels = ['真人', '大概率真人', '不确定', '可疑', '水军'];
+    const buttonsHtml = labels.map((l, i) => {
+        const selected = (mode === 'labeled' && currentLabel === i) ? ' selected' : '';
+        return `<button class="label-btn${selected}" data-label="${i}" data-uid="${user.user_id}" data-topic="${escapeHtml(user.topic || '')}" data-ai="${score}" onclick="handleLabel(this)">${l}</button>`;
+    }).join('');
+
+    // Media exclusion button
+    const mediaSelected = (mode === 'labeled' && currentLabel === -1) ? ' selected' : '';
+    const mediaBtn = `<button class="label-btn${mediaSelected}" data-label="-1" data-uid="${user.user_id}" data-topic="${escapeHtml(user.topic || '')}" data-ai="${score}" onclick="handleLabel(this)">新闻媒体</button>`;
+
+    // Current label badge (only in labeled view)
+    let badgeHtml = '';
+    if (mode === 'labeled' && currentLabel !== undefined && currentLabel !== null) {
+        const badgeName = labelNames[String(currentLabel)] || '未知';
+        const badgeColors = {'-1': '#607d8b', '0': '#4caf50', '1': '#8bc34a', '2': '#ff9800', '3': '#ef6c00', '4': '#e53935'};
+        const bgColor = badgeColors[String(currentLabel)] || '#999';
+        badgeHtml = `<span class="label-current-badge" style="background:${bgColor}20;color:${bgColor};border:1px solid ${bgColor}40">${badgeName}</span>`;
+    }
+
+    // Feature detail panel
+    const featureNames = {
+        daily_post_rate: '日均发帖', human_likeness_score: '拟人度',
+        exclamation_density: '感叹密度', is_random_name: '乱码昵称',
+        engagement_count: '互动量', is_verified: 'V认证',
+        sentiment_score: '情感极性', topic_diversity: '话题多样性',
+        post_interval_variance: '间隔方差'
+    };
+    const features = user.features || {};
+    let detailItems = '';
+    for (const [key, val] of Object.entries(features)) {
+        const display = featureNames[key] || key;
+        const fmtVal = typeof val === 'number' ? (val < 1 && val > 0 ? (val * 100).toFixed(1) + '%' : val.toFixed(2)) : val;
+        detailItems += `<div class="detail-item"><span class="detail-key">${display}</span><span class="detail-val">${fmtVal}</span></div>`;
+    }
+    if (user.verified_reason) detailItems += `<div class="detail-item"><span class="detail-key">认证信息</span><span class="detail-val">${escapeHtml(user.verified_reason)}</span></div>`;
+    if (user.description) detailItems += `<div class="detail-item"><span class="detail-key">简介</span><span class="detail-val">${escapeHtml(user.description)}</span></div>`;
+
+    // Labeled-at info (only for labeled view)
+    const labeledAtHtml = (mode === 'labeled' && user.labeled_at) ? `<div class="label-meta-time" style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">标注于 ${escapeHtml(user.labeled_at)}</div>` : '';
+
+    const deleteBtnHtml = `
+        <button class="delete-user-btn" onclick="deleteLabelUserCard('${user.user_id}'); event.stopPropagation();" title="永久删除此账号">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18"></path>
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+            </svg>
+        </button>
+    `;
+
+    return `
+    <div class="label-card" id="lcard-${user.user_id}" data-mode="${mode}">
+        <div class="label-card-header" onclick="toggleLabelDetail(this)">
+            <div class="label-avatar">${avatarHtml}</div>
+            <div class="label-user-info">
+                <div class="name">${escapeHtml(name)}</div>
+                <div class="meta">粉丝 ${user.followers_count || 0} · 关注 ${user.friends_count || 0} · 微博 ${user.statuses_count || 0}</div>
+                ${labeledAtHtml}
+            </div>
+            ${badgeHtml}
+            <span class="label-ai-score ${cls}">AI: ${pct}%</span>
+            ${deleteBtnHtml}
+        </div>
+        <div class="label-card-detail">
+            <div class="label-detail-grid">${detailItems}</div>
+        </div>
+        <div class="label-expand-hint" onclick="toggleLabelDetail(this.parentElement.querySelector('.label-card-header'))">▼ 点击展开查看特征详情</div>
+        <div class="label-text-preview">${escapeHtml(user.text_preview || '')}</div>
+        <div class="label-buttons">${mediaBtn}${buttonsHtml}</div>
+    </div>`;
+}
+
+window.deleteLabelUserCard = async function(uid) {
+    const card = document.getElementById(`lcard-${uid}`);
+    if (!card) return;
+
+    const btn = card.querySelector('.delete-user-btn');
+    if (btn) btn.disabled = true;
+
+    try {
+        const res = await window.api.deleteLabelUser(uid);
+        if (res.error) throw new Error(res.error);
+
+        // Success animation
+        card.style.transition = 'all 0.3s ease';
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.95)';
+        setTimeout(() => {
+            card.remove();
+            
+            // Update stats
+            if (_labelView === 'unlabeled') {
+                const countEl = document.getElementById('labelQueueCount');
+                if (countEl) countEl.textContent = Math.max(0, parseInt(countEl.textContent || 0) - 1);
+            } else {
+                const countEl = document.getElementById('labelTotalCount');
+                if (countEl) countEl.textContent = Math.max(0, parseInt(countEl.textContent || 0) - 1);
+            }
+
+            // Check if empty
+            if (document.querySelectorAll('.label-card').length === 0) {
+                refreshCurrentLabelView();
+            }
+        }, 300);
+    } catch (e) {
+        if (btn) btn.disabled = false;
+        alert('删除失败: ' + e.message);
+    }
+};
+
+window.handleLabel = async function(btn) {
+    const label = parseInt(btn.dataset.label);
+    const uid = btn.dataset.uid;
+    const topic = btn.dataset.topic;
+    const ai = parseFloat(btn.dataset.ai);
+    const card = btn.closest('.label-card');
+    const mode = card.dataset.mode;
+
+    // Visual: highlight selected
+    card.querySelectorAll('.label-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+
+    try {
+        await window.api.submitLabel(uid, label, topic, ai, {});
+
+        if (mode === 'unlabeled') {
+            // In unlabeled view: card fades out and disappears
+            card.style.transition = 'all 0.4s ease';
+            card.style.opacity = '0';
+            card.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                card.remove();
+                // Update stats counters
+                const totalEl = document.getElementById('labelTotalCount');
+                const queueEl = document.getElementById('labelQueueCount');
+                totalEl.textContent = parseInt(totalEl.textContent) + 1;
+                const newQueue = Math.max(0, parseInt(queueEl.textContent) - 1);
+                queueEl.textContent = newQueue;
+                const totalAll = parseInt(totalEl.textContent) + newQueue;
+                const pct = totalAll > 0 ? Math.round(parseInt(totalEl.textContent) / totalAll * 100) : 0;
+                document.getElementById('labelProgressFill').style.width = pct + '%';
+                document.getElementById('labelProgressText').textContent = pct + '%';
+
+                // If no more cards visible, show empty message
+                const container = document.getElementById('labelCardsContainer');
+                if (!container.querySelector('.label-card')) {
+                    container.innerHTML = `<div class="history-empty"><p>当前页已标注完毕，请翻页或切换视图查看</p></div>`;
+                }
+            }, 450);
+        } else {
+            // In labeled view: just update badge and highlight (label modified)
+            const labelNames = {'-1': '新闻媒体', '0': '真人', '1': '大概率真人', '2': '不确定', '3': '可疑', '4': '水军'};
+            const badgeColors = {'-1': '#607d8b', '0': '#4caf50', '1': '#8bc34a', '2': '#ff9800', '3': '#ef6c00', '4': '#e53935'};
+            const badge = card.querySelector('.label-current-badge');
+            if (badge) {
+                const bgColor = badgeColors[String(label)] || '#999';
+                badge.textContent = labelNames[String(label)] || '未知';
+                badge.style.background = bgColor + '20';
+                badge.style.color = bgColor;
+                badge.style.borderColor = bgColor + '40';
+            }
+            // Brief flash effect to confirm change
+            card.style.transition = 'box-shadow 0.3s';
+            card.style.boxShadow = '0 0 0 2px rgba(184,148,61,0.5)';
+            setTimeout(() => { card.style.boxShadow = ''; }, 800);
+        }
+    } catch (e) {
+        alert('标注提交失败: ' + e.message);
+    }
+};
+
+// Toggle card detail panel
+window.toggleLabelDetail = function(headerEl) {
+    const card = headerEl.closest('.label-card');
+    const detail = card.querySelector('.label-card-detail');
+    const hint = card.querySelector('.label-expand-hint');
+    const isExpanded = detail.classList.contains('expanded');
+    detail.classList.toggle('expanded');
+    if (hint) {
+        hint.textContent = isExpanded ? '▼ 点击展开查看特征详情' : '▲ 收起详情';
+    }
+};
+
+// Pagination handlers
+document.getElementById('prevLabelBtn')?.addEventListener('click', () => {
+    if (_labelPage > 1) refreshCurrentLabelView(_labelPage - 1);
+});
+document.getElementById('nextLabelBtn')?.addEventListener('click', () => {
+    if (_labelPage < _labelTotalPages) refreshCurrentLabelView(_labelPage + 1);
+});
+document.getElementById('labelTopicFilter')?.addEventListener('change', () => {
+    _labelPage = 1;
+    refreshCurrentLabelView();
+});
+
+
+// ==================== MODEL WORKSHOP MODULE ====================
+
+async function fetchModelInfo() {
+    try {
+        const data = await window.api.getModelInfo();
+
+        document.getElementById('modelType').textContent = data.model_type || '未加载';
+        document.getElementById('modelEstimators').textContent = data.n_estimators || '—';
+        document.getElementById('modelDepth').textContent = data.max_depth || '—';
+        document.getElementById('modelSamples').textContent = data.training_samples || 0;
+        document.getElementById('modelLastUpdate').textContent = data.last_modified || '未知';
+
+        // Render Feature Importance chart
+        if (data.feature_importances && Object.keys(data.feature_importances).length > 0) {
+            renderFeatureImportanceChart(data.feature_importances);
+        }
+
+        // Render Label Distribution chart
+        if (data.label_distribution && Object.keys(data.label_distribution).length > 0) {
+            renderLabelDistChart(data.label_distribution);
+        }
+    } catch (e) {
+        console.error('Model info fetch failed:', e);
+    }
+}
+
+function renderFeatureImportanceChart(importances) {
+    const chartDom = document.getElementById('featureImportanceChart');
+    if (!chartDom) return;
+    const chart = echarts.init(chartDom);
+
+    const featureNames = {
+        daily_post_rate: '发帖频率', human_likeness_score: '语义拟人度',
+        exclamation_density: '感叹号密度', is_random_name: '乱码昵称',
+        engagement_count: '互动量', is_verified: 'V认证',
+        sentiment_score: '情感极性', topic_diversity: '话题多样性',
+        post_interval_variance: '间隔方差'
+    };
+
+    // Sort by importance descending
+    const sorted = Object.entries(importances).sort((a, b) => a[1] - b[1]);
+    const names = sorted.map(([k]) => featureNames[k] || k);
+    const values = sorted.map(([, v]) => v);
+
+    chart.setOption({
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#e8e0d4', textStyle: { color: '#2c2418' } },
+        grid: { left: '20%', right: '8%', top: '4%', bottom: '8%' },
+        xAxis: { type: 'value', axisLabel: { color: '#8a7e6b', fontSize: 11 }, splitLine: { lineStyle: { color: 'rgba(184,148,61,0.1)' } } },
+        yAxis: { type: 'category', data: names, axisLabel: { color: '#8a7e6b', fontSize: 12 }, axisLine: { lineStyle: { color: '#e8e0d4' } } },
+        series: [{
+            type: 'bar',
+            data: values,
+            barWidth: '55%',
+            itemStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                    { offset: 0, color: 'rgba(184,148,61,0.3)' },
+                    { offset: 1, color: '#b8943d' }
+                ]),
+                borderRadius: [0, 6, 6, 0]
+            },
+            label: { show: true, position: 'right', color: '#8a7e6b', fontSize: 11, formatter: p => (p.value * 100).toFixed(1) + '%' }
+        }]
+    });
+    window.addEventListener('resize', () => chart.resize());
+}
+
+function renderLabelDistChart(distribution) {
+    const chartDom = document.getElementById('labelDistChart');
+    if (!chartDom) return;
+    const chart = echarts.init(chartDom);
+
+    const colorMap = {
+        '确定真人': '#7cb87a', '大概率真人': '#a5d6a7',
+        '不确定': '#c9a84c', '比较可疑': '#ef6c00', '几乎确定水军': '#c96b5e'
+    };
+
+    const pieData = Object.entries(distribution).map(([name, value]) => ({
+        name, value, itemStyle: { color: colorMap[name] || '#999' }
+    }));
+
+    chart.setOption({
+        tooltip: { trigger: 'item', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#e8e0d4', textStyle: { color: '#2c2418' } },
+        legend: { bottom: 5, textStyle: { color: '#8a7e6b' } },
+        series: [{
+            type: 'pie',
+            radius: ['40%', '68%'],
+            itemStyle: { borderRadius: 6, borderColor: 'rgba(255,255,255,0.4)', borderWidth: 2 },
+            label: { show: true, color: '#2c2418', formatter: '{b}\n{d}%' },
+            data: pieData
+        }]
+    });
+    window.addEventListener('resize', () => chart.resize());
+}
+
+// Retrain button
+document.getElementById('retrainBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('retrainBtn');
+    const resultDiv = document.getElementById('retrainResult');
+    btn.disabled = true;
+    btn.querySelector('.btn-text').style.display = 'none';
+    btn.querySelector('.btn-loading').style.display = 'inline';
+    resultDiv.style.display = 'none';
+
+    try {
+        const data = await window.api.retrainModel();
+        resultDiv.style.display = 'block';
+        if (data.status === 'success') {
+            resultDiv.className = 'retrain-result success';
+            resultDiv.innerHTML = `✅ ${data.message}<br>训练样本：${data.training_samples} 条<br>交叉验证 MAE：${data.cv_mae}<br>交叉验证 R²：${data.cv_r2}<br>完成时间：${data.trained_at}`;
+            // Refresh model info
+            setTimeout(fetchModelInfo, 500);
+        } else {
+            resultDiv.className = 'retrain-result error';
+            resultDiv.textContent = '❌ ' + (data.message || '训练失败');
+        }
+    } catch (e) {
+        resultDiv.style.display = 'block';
+        resultDiv.className = 'retrain-result error';
+        resultDiv.textContent = '❌ 请求失败: ' + e.message;
+    } finally {
+        btn.disabled = false;
+        btn.querySelector('.btn-text').style.display = '';
+        btn.querySelector('.btn-loading').style.display = 'none';
+    }
+});
+
+// ============================================
+// Media DB Management Modal Logic
+// ============================================
+
+window.openMediaDbModal = async function() {
+    const modal = document.getElementById('mediaDbModal');
+    modal.style.display = 'flex';
+    setTimeout(() => {
+        modal.classList.add('active');
+    }, 10);
+    document.body.style.overflow = 'hidden';
+    await window.renderMediaDbTable();
+};
+
+window.closeMediaDbModal = function() {
+    const modal = document.getElementById('mediaDbModal');
+    modal.classList.remove('active');
+    setTimeout(() => {
+        modal.style.display = 'none';
+        document.body.style.overflow = '';
+    }, 300);
+};
+
+window.renderMediaDbTable = async function() {
+    const tbody = document.getElementById('mediaDbTableBody');
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: var(--text-dim);">加载中...</td></tr>';
+    try {
+        const mediaList = await window.api.getMediaList();
+        if (mediaList.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 30px; color: var(--text-dim);">免检白名单当前为空呦~</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = mediaList.map(item => `
+            <tr>
+                <td style="padding: 10px 15px; border-bottom: 1px solid var(--border); font-family: monospace;">${escapeHtml(item.user_id)}</td>
+                <td style="padding: 10px 15px; border-bottom: 1px solid var(--border);">${escapeHtml(item.screen_name) || `<span style="color:#aaa">未知</span>`}</td>
+                <td style="padding: 10px 15px; border-bottom: 1px solid var(--border); font-size: 0.8rem; color: var(--text-dim);">${formatDateString(item.added_at)}</td>
+                <td style="padding: 10px 15px; border-bottom: 1px solid var(--border); text-align: right;">
+                    <button class="delete-link-btn" onclick="removeMediaAccount('${escapeHtml(item.user_id)}')">移除</button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; color: var(--danger);">加载失败: ${e.message}</td></tr>`;
+    }
+};
+
+window.addMediaAccount = async function() {
+    const uidInput = document.getElementById('mediaAddUid');
+    const nameInput = document.getElementById('mediaAddName');
+    const uid = uidInput.value.trim();
+    const name = nameInput.value.trim();
+    if (!uid) {
+        alert("请输入必填的账号 UID");
+        return;
+    }
+    
+    try {
+        const btn = document.querySelector('.media-add-form .primary-btn');
+        btn.disabled = true;
+        btn.textContent = '录入中...';
+        await window.api.addMediaAccount(uid, name);
+        uidInput.value = '';
+        nameInput.value = '';
+        await window.renderMediaDbTable();
+    } catch (e) {
+        alert("添加失败: " + e.message);
+    } finally {
+        const btn = document.querySelector('.media-add-form .primary-btn');
+        btn.disabled = false;
+        btn.textContent = '➕ 手动录入';
+    }
+};
+
+window.removeMediaAccount = async function(uid) {
+    if (!confirm(`确定要将 UID:${uid} 移出免检白名单吗？其后续检测将恢复标准流程。`)) return;
+    try {
+        await window.api.deleteMediaAccount(uid);
+        await window.renderMediaDbTable();
+    } catch (e) {
+        alert("移除失败: " + e.message);
+    }
+};
+
+function formatDateString(isoString) {
+    if (!isoString) return '';
+    try {
+        const d = new Date(isoString);
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    } catch {
+        return isoString;
+    }
+}

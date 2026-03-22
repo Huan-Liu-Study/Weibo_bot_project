@@ -39,8 +39,18 @@ _AUTH_KEYWORDS = ['蓝v', '企业认证', '媒体认证', '政府认证']
 def is_official_media(row):
     """
     判断是否为新闻媒体、政务、客户端或企业官方认证账号。
-    扫描维度：认证类型 (user_authentication)、认证理由 (verified_reason)、简介 (description)、昵称 (screen_name/用户昵称)。
+    扫描维度：人工媒体白名单库 (media_store.db) -> 认证类型 -> 简介 -> 昵称。
     """
+    # 0. 最高优先级拦截：动态媒体白名单库
+    uid = str(row.get('user_id', row.get('id', '')))
+    if uid:
+        try:
+            import media_db
+            if media_db.is_in_media_db(uid):
+                return True
+        except Exception:
+            pass
+
     auth = str(row.get('user_authentication', '')).lower() + str(row.get('verified_reason', '')).lower()
     desc = str(row.get('description', '')).lower()
     name = str(row.get('screen_name', row.get('用户昵称', ''))).lower()

@@ -148,6 +148,17 @@ def clear_topic(topic: str):
     conn.commit()
     conn.close()
 
+def delete_user_posts(uid: str) -> int:
+    """Delete all posts belonging to a user from topic_cache.db"""
+    conn = _get_conn()
+    cur = conn.cursor()
+    # Since data_json contains 'user_id': <uid>, we can match it
+    cur.execute("DELETE FROM topic_posts WHERE data_json LIKE ?", (f'%"{uid}"%',))
+    deleted_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted_count
+
 
 # Auto-init on import
 init_db()

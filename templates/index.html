@@ -102,6 +102,21 @@
                 </svg>
                 全网热搜检测库
             </button>
+            <button class="tab-btn" data-tab="label">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+                数据标注
+            </button>
+            <button class="tab-btn" data-tab="model">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                    <path d="M2 17l10 5 10-5" />
+                    <path d="M2 12l10 5 10-5" />
+                </svg>
+                模型工坊
+            </button>
         </nav>
 
         <!-- ========== Tab 1: Topic Detection ========== -->
@@ -337,6 +352,136 @@
             </div>
         </section>
 
+        <!-- ========== Tab 4: Data Labeling ========== -->
+        <section id="tab-label" class="tab-panel">
+            <!-- 密码门禁 -->
+            <div id="labelAuthGate" class="label-auth-gate">
+                <div class="auth-gate-card">
+                    <h3>标注模块已加锁</h3>
+                    <p>请输入管理员密码以解锁标注功能</p>
+                    <div class="auth-input-group">
+                        <input type="password" id="labelPasswordInput" placeholder="请输入密码" autocomplete="off">
+                        <button id="labelAuthBtn" class="auth-submit-btn">解锁</button>
+                    </div>
+                    <p id="labelAuthError" class="auth-error" style="display:none">密码错误，请重试</p>
+                </div>
+            </div>
+
+            <!-- 标注工作台主体（解锁后显示） -->
+            <div id="labelWorkbench" style="display:none">
+                <div class="label-header">
+                    <h2>🏷️ 数据标注工作台</h2>
+                    <p class="history-desc">从话题检测历史中提取未标注的用户，进行人工审核打标。标注数据将同步至训练库，用于强化模型。</p>
+                </div>
+
+                <!-- 标注进度统计 -->
+                <div class="label-stats-bar">
+                    <div class="stat-chip" data-view="labeled" onclick="switchLabelView('labeled')" title="点击查看已标注数据">
+                        <span class="stat-num" id="labelTotalCount">0</span>
+                        <span class="stat-label">已标注</span>
+                    </div>
+                    <div class="stat-chip active" data-view="unlabeled" onclick="switchLabelView('unlabeled')" title="点击查看待标注数据">
+                        <span class="stat-num" id="labelQueueCount">0</span>
+                        <span class="stat-label">待标注</span>
+                    </div>
+                    <div class="label-progress-wrap">
+                        <div class="label-progress-bar">
+                            <div class="label-progress-fill" id="labelProgressFill" style="width:0%"></div>
+                        </div>
+                        <span class="label-progress-text" id="labelProgressText">0%</span>
+                    </div>
+                    <div class="label-filter">
+                        <select id="labelTopicFilter">
+                            <option value="">全部话题</option>
+                        </select>
+                        <button id="manageMediaDbBtn" class="secondary-btn" style="margin-left: 10px; padding: 6px 14px; font-size: 0.85rem;" onclick="openMediaDbModal()">🗃️ 管理媒体免检库</button>
+                    </div>
+                </div>
+
+                <!-- 标注卡片区 -->
+                <div id="labelCardsContainer" class="label-cards-grid">
+                    <div class="history-empty">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="1.5" opacity="0.3">
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                        </svg>
+                        <p>请先进行话题检测以产生待标注数据</p>
+                    </div>
+                </div>
+
+                <!-- 分页 -->
+                <div id="labelPagination" class="pagination-controls" style="display:none">
+                    <button id="prevLabelBtn" class="page-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="m15 18-6-6 6-6" />
+                        </svg>
+                        上一页
+                    </button>
+                    <span id="labelPageInfo" class="page-info">第 1 / 1 页</span>
+                    <button id="nextLabelBtn" class="page-btn">
+                        下一页
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="m9 18 6-6-6-6" />
+                        </svg>
+                    </button>
+                </div>
+            </div> <!-- /labelWorkbench -->
+        </section>
+
+        <!-- ========== Tab 5: Model Workshop ========== -->
+        <section id="tab-model" class="tab-panel">
+            <div class="model-header">
+                <h2>🔬 模型工坊</h2>
+                <p class="history-desc">查看当前 RandomForest 模型的权重、训练数据分布，以及一键触发模型重训练。</p>
+            </div>
+
+            <div class="model-grid">
+                <!-- 模型概览卡 -->
+                <div class="chart-card model-overview-card">
+                    <h3>模型概览</h3>
+                    <div class="model-meta-list">
+                        <div class="meta-row"><span class="meta-key">模型类型</span><span class="meta-val"
+                                id="modelType">—</span></div>
+                        <div class="meta-row"><span class="meta-key">决策树数量</span><span class="meta-val"
+                                id="modelEstimators">—</span></div>
+                        <div class="meta-row"><span class="meta-key">最大深度</span><span class="meta-val"
+                                id="modelDepth">—</span></div>
+                        <div class="meta-row"><span class="meta-key">训练样本数</span><span class="meta-val"
+                                id="modelSamples">—</span></div>
+                        <div class="meta-row"><span class="meta-key">最后更新</span><span class="meta-val"
+                                id="modelLastUpdate">—</span></div>
+                    </div>
+                    <button id="retrainBtn" class="retrain-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M21 2v6h-6" />
+                            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                            <path d="M3 22v-6h6" />
+                            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                        </svg>
+                        <span class="btn-text">一键重训练模型</span>
+                        <span class="btn-loading" style="display:none">⏳ 训练中...</span>
+                    </button>
+                    <div id="retrainResult" class="retrain-result" style="display:none"></div>
+                </div>
+
+                <!-- 特征权重柱状图 -->
+                <div class="chart-card">
+                    <h3>特征权重排行 (Feature Importances)</h3>
+                    <div id="featureImportanceChart" class="chart-container" style="height:350px"></div>
+                </div>
+
+                <!-- 训练数据标签分布 -->
+                <div class="chart-card">
+                    <h3>训练数据标签分布</h3>
+                    <div id="labelDistChart" class="chart-container" style="height:300px"></div>
+                </div>
+            </div>
+        </section>
+
         <!-- ==================== v1.9.0 NODE DETAIL MODAL ==================== -->
         <div id="nodeModal" class="info-overlay" style="display:none; z-index: 1000;">
             <div class="overlay-backdrop" id="nodeModalBackdrop"></div>
@@ -392,6 +537,52 @@
         </div>
 
     </main>
+
+    <!-- ========================================== -->
+    <!--          Media DB Management Modal         -->
+    <!-- ========================================== -->
+    <div id="mediaDbModal" class="info-overlay" style="display:none; z-index: 1000;">
+        <div class="overlay-backdrop" onclick="closeMediaDbModal()"></div>
+        <div class="info-modal" style="max-width: 700px; width: 90%; padding: 0; overflow: hidden;">
+            <div class="modal-header" style="padding: 1.5rem 1.5rem 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0; font-size: 1.35rem;">🗃️ 新闻媒体免检库管理</h2>
+                <button class="close-overlay" onclick="closeMediaDbModal()" style="position: static; padding: 4px; background: none; border: none; cursor: pointer; color: var(--text-dim);">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem;">
+                <p style="font-size: 0.9rem; color: var(--text-dim); margin-bottom: 1rem;">
+                    纳入本库的账号，在话题采集和检测将获得最高优先级的<strong>豁免权（判定为官方认证）</strong>。避免因高频发博被误判为水军。
+                </p>
+                <div class="media-add-form" style="display: flex; gap: 10px; margin-bottom: 1.5rem;">
+                    <input type="text" id="mediaAddUid" placeholder="账号 UID (必填)" style="flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: rgba(0,0,0,0.02); color: var(--text);">
+                    <input type="text" id="mediaAddName" placeholder="账号昵称 (选填)" style="flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: rgba(0,0,0,0.02); color: var(--text);">
+                    <button class="primary-btn" onclick="addMediaAccount()" style="padding: 0 16px; border-radius: 6px;">➕ 手动录入</button>
+                </div>
+                
+                <div class="media-table-container" style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+                    <table class="data-table" style="width: 100%; text-align: left; border-collapse: collapse; font-size: 0.9rem;">
+                        <thead style="background: rgba(0,0,0,0.03); position: sticky; top: 0; z-index: 10;">
+                            <tr>
+                                <th style="padding: 10px 15px; border-bottom: 1px solid var(--border); font-weight: 600;">UID</th>
+                                <th style="padding: 10px 15px; border-bottom: 1px solid var(--border); font-weight: 600;">账号昵称</th>
+                                <th style="padding: 10px 15px; border-bottom: 1px solid var(--border); font-weight: 600;">收录时间</th>
+                                <th style="padding: 10px 15px; border-bottom: 1px solid var(--border); font-weight: 600; text-align: right;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mediaDbTableBody">
+                            <tr>
+                                <td colspan="4" style="text-align: center; padding: 20px; color: var(--text-dim);">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <footer>
         <p>Weibo Bot Shield &copy; 2026 · 基于 RandomForest + 规则引擎双驱动</p>
