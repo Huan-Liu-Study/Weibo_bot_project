@@ -33,8 +33,21 @@ def get_model_info():
         'feature_cols': FEATURE_COLS,
         'training_samples': 0,
         'golden_csv_exists': False,
-        'label_distribution': {}
+        'label_distribution': {},
+        'new_labels_count': 0
     }
+
+    # 0. 新增标注count
+    try:
+        import sqlite3
+        label_db = os.path.join(os.path.dirname(__file__), 'label_store.db')
+        if os.path.exists(label_db):
+            lconn = sqlite3.connect(label_db)
+            cnt = lconn.execute("SELECT COUNT(*) FROM labeled_users WHERE trained = 0").fetchone()[0]
+            lconn.close()
+            result['new_labels_count'] = cnt
+    except Exception:
+        pass
 
     # 1. 模型文件信息
     if os.path.exists(MODEL_PATH):

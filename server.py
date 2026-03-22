@@ -1,6 +1,7 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 from bot_pipeline import run_pipeline
 import traceback
+import requests as http_requests
 import topic_db
 
 from response_builder import build_topic_response, analyze_single_user
@@ -127,7 +128,7 @@ def label_submit():
         return jsonify({"error": "label 必须为 -1 到 4"}), 400
 
     try:
-        result = submit_label(uid, label, topic, ai_score, features)
+        result = submit_label(uid, label, topic, ai_score, features, screen_name=data.get('screen_name', ''))
         return jsonify(result)
     except Exception as e:
         logger.exception(f"标注提交失败 UID={uid}")
@@ -231,6 +232,20 @@ def model_retrain():
     except Exception as e:
         logger.exception("模型重训练失败")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/avatar')
+def avatar_proxy():
+    """代理微博头像图片，绕过防盗链限制"""
+    url = request.args.get('url', '')
+    if not url or 'sinaimg' not in url:
+        return '', 404
+    try:
+        resp = http_requests.get(url, headers={'Referer': 'https://weibo.com/'}, timeout=8)
+        return Response(resp.content, content_type=resp.headers.get('Content-Type', 'image/jpeg'),
+                        headers={'Cache-Control': 'public, max-age=86400'})
+    except Exception:
+        return '', 502
 
 
 # ===================== Entry =====================

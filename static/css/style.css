@@ -21,6 +21,7 @@
     --radius-sm: 12px;
     --shadow: 0 4px 15px rgba(44, 36, 24, 0.04);
     --shadow-lg: 0 12px 30px rgba(44, 36, 24, 0.08);
+    --gold: #d4af37;
 }
 
 /* Global Background Refinement */
@@ -2341,6 +2342,7 @@ footer {
 .label-btn.selected[data-label="-1"] {
     background: #546e7a;
     border-color: #546e7a;
+    color: #ffffff;
 }
 
 /* ============================================ */

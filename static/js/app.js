@@ -451,7 +451,7 @@ function renderUserResults(data) {
 
     const avatarEl = document.getElementById('userAvatar');
     if (info.avatar_hd && info.avatar_hd.length > 10) {
-        avatarEl.innerHTML = `<img src="${info.avatar_hd}" alt="avatar">`;
+        avatarEl.innerHTML = `<img src="/api/avatar?url=${encodeURIComponent(info.avatar_hd)}" alt="avatar">`;
     } else {
         avatarEl.textContent = (info.screen_name || '?')[0];
     }
@@ -674,12 +674,11 @@ async function loadHistoryTopic(topic) {
 }
 
 async function deleteHistoryTopic(topic) {
-    if (!confirm(`确定要删除话题 “${topic}” 的所有本地数据吗？此操作不可撤销。`)) return;
-
     try {
         await window.api.deleteTopic(topic);
         fetchHistory();
     } catch (err) {
+        console.error('删除失败:', err.message);
         alert('删除失败: ' + err.message);
     }
 }
@@ -885,7 +884,7 @@ function renderLabelCard(user, mode = 'unlabeled') {
     const cls = score >= 0.7 ? 'high' : score >= 0.4 ? 'medium' : 'low';
     const name = user.screen_name || 'UID:' + user.user_id;
     const avatarHtml = (user.avatar_hd && user.avatar_hd.length > 10)
-        ? `<img src="${user.avatar_hd}" alt="">`
+        ? `<img src="/api/avatar?url=${encodeURIComponent(user.avatar_hd)}" alt="">`
         : name[0];
 
     const labelNames = {'-1': '新闻媒体', '0': '真人', '1': '大概率真人', '2': '不确定', '3': '可疑', '4': '水军'};
@@ -894,12 +893,12 @@ function renderLabelCard(user, mode = 'unlabeled') {
     const labels = ['真人', '大概率真人', '不确定', '可疑', '水军'];
     const buttonsHtml = labels.map((l, i) => {
         const selected = (mode === 'labeled' && currentLabel === i) ? ' selected' : '';
-        return `<button class="label-btn${selected}" data-label="${i}" data-uid="${user.user_id}" data-topic="${escapeHtml(user.topic || '')}" data-ai="${score}" onclick="handleLabel(this)">${l}</button>`;
+        return `<button class="label-btn${selected}" data-label="${i}" data-uid="${user.user_id}" data-topic="${escapeHtml(user.topic || '')}" data-ai="${score}" data-name="${escapeHtml(user.screen_name || '')}" onclick="handleLabel(this)">${l}</button>`;
     }).join('');
 
     // Media exclusion button
     const mediaSelected = (mode === 'labeled' && currentLabel === -1) ? ' selected' : '';
-    const mediaBtn = `<button class="label-btn${mediaSelected}" data-label="-1" data-uid="${user.user_id}" data-topic="${escapeHtml(user.topic || '')}" data-ai="${score}" onclick="handleLabel(this)">新闻媒体</button>`;
+    const mediaBtn = `<button class="label-btn${mediaSelected}" data-label="-1" data-uid="${user.user_id}" data-topic="${escapeHtml(user.topic || '')}" data-ai="${score}" data-name="${escapeHtml(user.screen_name || '')}" onclick="handleLabel(this)">新闻媒体</button>`;
 
     // Current label badge (only in labeled view)
     let badgeHtml = '';
@@ -981,13 +980,24 @@ window.deleteLabelUserCard = async function(uid) {
         setTimeout(() => {
             card.remove();
             
-            // Update stats
             if (_labelView === 'unlabeled') {
                 const countEl = document.getElementById('labelQueueCount');
                 if (countEl) countEl.textContent = Math.max(0, parseInt(countEl.textContent || 0) - 1);
             } else {
                 const countEl = document.getElementById('labelTotalCount');
                 if (countEl) countEl.textContent = Math.max(0, parseInt(countEl.textContent || 0) - 1);
+            }
+
+            // Sync progress bar
+            const totalEl = document.getElementById('labelTotalCount');
+            const queueEl = document.getElementById('labelQueueCount');
+            if (totalEl && queueEl) {
+                const totalAll = parseInt(totalEl.textContent || 0) + parseInt(queueEl.textContent || 0);
+                const pct = totalAll > 0 ? Math.round(parseInt(totalEl.textContent || 0) / totalAll * 100) : 0;
+                const fillEl = document.getElementById('labelProgressFill');
+                const textEl = document.getElementById('labelProgressText');
+                if (fillEl) fillEl.style.width = pct + '%';
+                if (textEl) textEl.textContent = pct + '%';
             }
 
             // Check if empty
@@ -1012,9 +1022,10 @@ window.handleLabel = async function(btn) {
     // Visual: highlight selected
     card.querySelectorAll('.label-btn').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected');
+    const screenName = btn.dataset.name || '';
 
     try {
-        await window.api.submitLabel(uid, label, topic, ai, {});
+        await window.api.submitLabel(uid, label, topic, ai, {}, screenName);
 
         if (mode === 'unlabeled') {
             // In unlabeled view: card fades out and disappears
@@ -1098,6 +1109,12 @@ async function fetchModelInfo() {
         document.getElementById('modelDepth').textContent = data.max_depth || '—';
         document.getElementById('modelSamples').textContent = data.training_samples || 0;
         document.getElementById('modelLastUpdate').textContent = data.last_modified || '未知';
+
+        const newLabelsEl = document.getElementById('modelNewLabels');
+        if (newLabelsEl) {
+            const cnt = data.new_labels_count || 0;
+            newLabelsEl.textContent = cnt > 0 ? `+${cnt} 条` : '0 条';
+        }
 
         // Render Feature Importance chart
         if (data.feature_importances && Object.keys(data.feature_importances).length > 0) {

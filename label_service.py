@@ -115,7 +115,7 @@ def get_label_queue(topic=None, page=1, page_size=20):
     }
 
 
-def submit_label(user_id, label, topic='', ai_pred_score=0.5, features=None):
+def submit_label(user_id, label, topic='', ai_pred_score=0.5, features=None, screen_name=''):
     """
     提交标注结果，双写到 label_store.db 和 golden_testset_labeled.csv。
     label: 0-4 的整数档位，-1 = 新闻媒体（排除，不进入训练数据）
@@ -125,21 +125,22 @@ def submit_label(user_id, label, topic='', ai_pred_score=0.5, features=None):
     now = datetime.now().isoformat()
     features_json = json.dumps(features or {}, ensure_ascii=False)
 
+    # 如果前端没传 screen_name，尝试从 topic_cache.db 查找
+    if not screen_name:
+        try:
+            tc = topic_db._get_conn()
+            rows = tc.execute("SELECT data_json FROM topic_posts").fetchall()
+            tc.close()
+            for row in rows:
+                data = json.loads(row[0])
+                if str(data.get('user_id', '')) == str(user_id):
+                    screen_name = str(data.get('用户昵称', ''))
+                    break
+        except:
+            pass
+
     # 1. 写入 SQLite
     conn = _get_label_conn()
-    
-    # 先获取 screen_name（如果有的话）
-    screen_name = ''
-    try:
-        tc = topic_db._get_conn()
-        row = tc.execute("SELECT data_json FROM topic_posts WHERE data_json LIKE ?", (f'%"{user_id}"%',)).fetchone()
-        tc.close()
-        if row:
-            data = json.loads(row[0])
-            if str(data.get('user_id', '')) == str(user_id):
-                screen_name = str(data.get('用户昵称', ''))
-    except:
-        pass
 
     conn.execute("""
         INSERT OR REPLACE INTO labeled_users 
@@ -210,7 +211,7 @@ def get_label_stats():
 def get_labeled_queue(topic=None, page=1, page_size=20):
     """
     获取已标注但尚未用于训练的用户列表（trained=0 且有标注记录的）。
-    用于前端「已标注」视图。
+    用于前端「已标注」视图。返回的数据会从 topic_cache.db 补充完整的用户信息。
     """
     conn = _get_label_conn()
     base_sql = "FROM labeled_users WHERE trained = 0"
@@ -227,6 +228,31 @@ def get_labeled_queue(topic=None, page=1, page_size=20):
     ).fetchall()
     conn.close()
 
+    # 从 topic_cache.db 中建立 uid -> 完整用户信息 的映射
+    uid_set = {r[0] for r in rows}
+    user_info_map = {}  # uid -> dict with screen_name, followers_count, etc.
+    if uid_set:
+        try:
+            tc = topic_db._get_conn()
+            all_posts = tc.execute("SELECT data_json FROM topic_posts").fetchall()
+            tc.close()
+            for post_row in all_posts:
+                data = json.loads(post_row[0])
+                uid = str(data.get('user_id', ''))
+                if uid in uid_set and uid not in user_info_map:
+                    user_info_map[uid] = {
+                        'screen_name': str(data.get('用户昵称', '')),
+                        'followers_count': int(data.get('followers_count', 0)),
+                        'friends_count': int(data.get('friends_count', 0)),
+                        'statuses_count': int(data.get('statuses_count', 0)),
+                        'avatar_hd': str(data.get('avatar_hd', '')),
+                        'description': str(data.get('description', ''))[:100],
+                        'verified_reason': str(data.get('verified_reason', '')),
+                        'text_preview': str(data.get('微博正文', ''))[:150],
+                    }
+        except Exception:
+            pass
+
     label_names = {-1: '新闻媒体(排除)', 0: '确定真人', 1: '大概率真人', 2: '不确定', 3: '比较可疑', 4: '几乎确定水军'}
     users = []
     for r in rows:
@@ -235,16 +261,30 @@ def get_labeled_queue(topic=None, page=1, page_size=20):
             features = json.loads(r[7]) if r[7] else {}
         except Exception:
             pass
+
+        uid = r[0]
+        info = user_info_map.get(uid, {})
+        # 优先使用 topic_cache 中的 screen_name，如果没有则使用 labeled_users 中的
+        screen_name = info.get('screen_name', '') or r[1] or ''
+
         users.append({
-            'user_id': r[0],
-            'screen_name': r[1] or '',
+            'user_id': uid,
+            'screen_name': screen_name,
             'topic': r[2] or '',
             'suspicion_label': r[3],
             'suspicion_score': r[4],
             'ai_pred_score': r[5] or 0.5,
             'labeled_at': r[6],
             'label_name': label_names.get(r[3], str(r[3])),
-            'features': features
+            'features': features,
+            # 补充的用户元数据
+            'followers_count': info.get('followers_count', 0),
+            'friends_count': info.get('friends_count', 0),
+            'statuses_count': info.get('statuses_count', 0),
+            'avatar_hd': info.get('avatar_hd', ''),
+            'description': info.get('description', ''),
+            'verified_reason': info.get('verified_reason', ''),
+            'text_preview': info.get('text_preview', ''),
         })
 
     return {

@@ -70,11 +70,11 @@ const api = {
         return data;
     },
 
-    submitLabel: async (userId, label, topic = '', aiPredScore = 0.5, features = {}) => {
+    submitLabel: async (userId, label, topic = '', aiPredScore = 0.5, features = {}, screenName = '') => {
         const res = await fetch('/api/label/submit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, label, topic, ai_pred_score: aiPredScore, features })
+            body: JSON.stringify({ user_id: userId, label, topic, ai_pred_score: aiPredScore, features, screen_name: screenName })
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error);
